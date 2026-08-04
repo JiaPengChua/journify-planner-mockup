@@ -160,6 +160,23 @@
   .bubble.bot{align-self:flex-start;background:var(--violet-100);color:var(--ink);border-bottom-left-radius:5px}
   .bubble.bot em{color:var(--muted)}
   .bubble.bot a{color:var(--violet);font-weight:700}
+  /* "Create another itinerary" footer + confirmation modal */
+  .regen{border-top:1px solid var(--line);padding:16px 20px;display:flex;justify-content:center}
+  .regen-btn{border:0;border-radius:12px;padding:13px 22px;cursor:pointer;font-size:14.5px;font-weight:800;
+    background:linear-gradient(135deg,var(--violet),var(--violet-600));color:#fff;box-shadow:0 8px 20px rgba(109,40,217,.28);transition:transform .1s}
+  .regen-btn:hover{transform:translateY(-1px)}
+  .modal-overlay{position:fixed;inset:0;z-index:200;background:rgba(16,24,32,.55);backdrop-filter:blur(3px);display:grid;place-items:center;padding:20px}
+  .modal-overlay[hidden]{display:none}
+  .modal{background:#fff;border-radius:18px;box-shadow:var(--shadow);max-width:420px;width:100%;padding:24px;animation:modalpop .16s ease-out}
+  @keyframes modalpop{from{transform:translateY(8px) scale(.98);opacity:0}to{transform:none;opacity:1}}
+  .modal h3{margin:0 0 8px;font-size:19px;letter-spacing:-.01em}
+  .modal p{margin:0 0 20px;color:var(--ink-soft);font-size:14px;line-height:1.55}
+  .modal-actions{display:flex;gap:10px;justify-content:flex-end}
+  .modal-actions button{border-radius:11px;padding:11px 18px;font-size:14px;font-weight:700;cursor:pointer}
+  .modal-no{border:1px solid var(--line);background:#fff;color:var(--ink)}
+  .modal-no:hover{background:#f6f4ff}
+  .modal-yes{border:0;background:linear-gradient(135deg,var(--violet),var(--violet-600));color:#fff}
+  .modal-yes:hover{transform:translateY(-1px)}
 
   .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:12px 18px;border-radius:12px;font-size:13.5px;font-weight:600;box-shadow:var(--shadow);z-index:100;opacity:0;pointer-events:none;transition:opacity .2s}
   .toast.show{opacity:1}
@@ -284,6 +301,18 @@
 
 <div class="printable" id="printArea"></div>
 <div class="toast" id="toast"></div>
+
+<!-- Leave/regenerate confirmation modal -->
+<div class="modal-overlay" id="regenModal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="regenTitle">
+    <h3 id="regenTitle">Are you sure you want to leave?</h3>
+    <p>Your current itinerary will be cleared and a brand-new one regenerated from scratch.</p>
+    <div class="modal-actions">
+      <button class="modal-no" id="regenNo">No, stay</button>
+      <button class="modal-yes" id="regenYes">Yes, regenerate</button>
+    </div>
+  </div>
+</div>
 
 <!-- ============================================================================
      MAIN APP + ADA WIRING (proven auto-start pattern from cebu-flight-recommender)
@@ -604,9 +633,13 @@
   // (or however many have parsed, whichever is greater) so the breakdown is visible immediately;
   // once done, show exactly the days Ada actually produced.
   function dayTabList(t,s,done){
+    // Once finalised, show tabs ONLY for days that actually have content (deduped by the parser),
+    // so a missing/misfired day-by-day send never leaves a phantom "No content for this day." tab.
+    if(done) return s.days.map(d=>d.label);
+    // While streaming, show the full requested range up-front so the breakdown appears immediately.
     const numOf=l=>{ const m=/day\s*(\d+)/i.exec(l); return m?+m[1]:0; };
     const parsedMax=Math.max(0, ...s.days.map(d=>numOf(d.label)));
-    const target = done ? parsedMax : Math.max(t.days||0, parsedMax);
+    const target=Math.max(t.days||0, parsedMax);
     const out=[]; for(let i=1;i<=target;i++) out.push('Day '+i); return out;
   }
   function toolbarHTML(done){
@@ -649,22 +682,14 @@
       ${renderMD(day.lines)}</div>`;
   }
   function askHTML(){
-    // Each follow-up renders as a chat exchange: the question as a user bubble, Ada's reply
-    // as a bot bubble (with a typing indicator until the answer arrives).
-    const thread=state.qas.map(qa=>
-      `<div class="bubble user">${escapeHTML(qa.q)}</div>`+
-      `<div class="bubble bot">${qa.a? mdInline(qa.a):'<em>Ada is thinking…</em>'}</div>`
-    ).join('');
-    return `<div class="qas">${thread}</div>
-      <div class="ask"><input id="askInput" placeholder="Ask Ada anything about the plan… (e.g. add a day trip to Nikko)"/>
-      <button id="askBtn">Ask</button></div>`;
+    // Footer action: start over. Opens a leave-confirmation modal before reloading.
+    return `<div class="regen"><button class="regen-btn" id="btnRegen">✨ Create another itinerary</button></div>`;
   }
   function wireResult(t, done){
     $$('.tab').forEach(tab=>tab.onclick=()=>{ state.seenTabs.add(tab.dataset.tab); state.activeTab=tab.dataset.tab; renderItinerary(t, done); });
     const p=$('#btnPrint'); if(p) p.onclick=()=>printItinerary(t);
     const bf=$('#btnBookFlight'); if(bf) bf.onclick=()=>bookFlight(t);
-    const ab=$('#askBtn'), ai=$('#askInput');
-    if(ab&&ai){ const go=()=>askQuestion(ai.value.trim(),t); ab.onclick=go; ai.onkeydown=e=>{if(e.key==='Enter')go();}; }
+    const rb=$('#btnRegen'); if(rb) rb.onclick=()=>{ const m=$('#regenModal'); if(m) m.hidden=false; };
   }
 
   async function askQuestion(q,t){
@@ -779,8 +804,10 @@
       if(dm){
         pushDay();
         const inner=line.replace(/^\*\*/,'').replace(/\*\*.*$/,'').trim();     // "Day N — Title"
-        const mm=inner.match(/^(Day\s*\d+)\s*[—:\-]?\s*(.*)$/i);
-        cur={ label:(mm?mm[1]:inner).replace(/\s+/g,' ').trim(), title:(mm&&mm[2]||'').trim(), lines:[] };
+        const mm=inner.match(/^Day\s*(\d+)\s*[—:\-]?\s*(.*)$/i);
+        // Normalise the label to "Day N" (with a space) so it matches placeholders and dedupes
+        // cleanly even when Ada emits a mangled "Day1"/"Days14"-style header.
+        cur={ label:(mm?('Day '+mm[1]):inner.replace(/\s+/g,' ').trim()), title:(mm&&mm[2]||'').trim(), lines:[] };
         bucket='day'; continue;
       }
       const bl=line.match(BOLD_LINE);
@@ -799,6 +826,17 @@
     // makes the plan look cut off.
     const trimTrailing = arr=>{ while(arr.length){ const l=arr[arr.length-1]; if(!l.trim()||BOLD_LINE.test(l)){ arr.pop(); } else break; } };
     trimTrailing(out.pre);
+    // Dedupe repeated day numbers — the v7 LONG-itinerary split can re-send days. Keep the
+    // copy with the most content, ordered by day number, so tabs never duplicate or go empty.
+    const dayNum=l=>{ const m=/day\s*(\d+)/i.exec(l||''); return m?+m[1]:0; };
+    const contentLen=d=>d.lines.filter(x=>x.trim()).length;
+    const byNum=new Map();
+    for(const d of out.days){
+      const n=dayNum(d.label); if(!n) continue;
+      const prev=byNum.get(n);
+      if(!prev || contentLen(d)>contentLen(prev)) byNum.set(n,d);
+    }
+    out.days=[...byNum.keys()].sort((a,b)=>a-b).map(n=>byNum.get(n));
     const cm=(out.pre.join(' ').match(/\b(?:in|to|around|visit)\s+([A-Z][a-zA-Z]+)/g)||[]);
     out.cities=[...new Set(cm.map(m=>m.split(/\s+/).pop()))].slice(0,4);
     return out;
@@ -996,6 +1034,16 @@
     pop.addEventListener('click',e=>e.stopPropagation());
     document.addEventListener('click',()=>{ if(!pop.hidden) close(); });
     commit();
+  })();
+
+  /* ============ "Create another itinerary" confirmation modal ============ */
+  (function initRegenModal(){
+    const modal=$('#regenModal'); if(!modal) return;
+    const close=()=>{ modal.hidden=true; };
+    $('#regenNo').addEventListener('click', close);                       // No → return to page
+    $('#regenYes').addEventListener('click', ()=>location.reload());      // Yes → refresh (regenerate)
+    modal.addEventListener('click', e=>{ if(e.target===modal) close(); });// click backdrop = No
+    document.addEventListener('keydown', e=>{ if(e.key==='Escape' && !modal.hidden) close(); });
   })();
 
   setStatus('Connecting to Ada…','busy');
