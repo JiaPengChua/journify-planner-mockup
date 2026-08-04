@@ -50,6 +50,31 @@
   .field input, .field select{width:100%;padding:12px 13px;border:1px solid var(--line);border-radius:12px;font-size:14px;color:var(--ink);background:#fbfbfd;outline:none;transition:border-color .15s, box-shadow .15s}
   .field input:focus, .field select:focus{border-color:var(--violet);box-shadow:0 0 0 3px var(--violet-100)}
   .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  /* ---------- single range date picker ---------- */
+  .daterange{position:relative}
+  .dr-display{width:100%;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 13px;
+    border:1px solid var(--line);border-radius:12px;background:#fbfbfd;font-size:14px;color:var(--ink);cursor:pointer;text-align:left;transition:border-color .15s,box-shadow .15s}
+  .dr-display:hover{border-color:var(--violet)}
+  .dr-display.open{border-color:var(--violet);box-shadow:0 0 0 3px var(--violet-100)}
+  .dr-cal{opacity:.7;flex:none}
+  .dr-pop{position:absolute;z-index:60;top:calc(100% + 6px);left:0;right:0;min-width:270px;background:#fff;
+    border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:12px}
+  .dr-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+  .dr-title{font-weight:800;font-size:14px}
+  .dr-nav{border:1px solid var(--line);background:#fff;border-radius:9px;width:30px;height:30px;font-size:16px;line-height:1;cursor:pointer;color:var(--ink)}
+  .dr-nav:hover{background:#f6f4ff}
+  .dr-dow{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:4px}
+  .dr-dow span{text-align:center;font-size:11px;font-weight:700;color:var(--muted)}
+  .dr-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
+  .dr-cell{aspect-ratio:1;border:0;background:transparent;border-radius:9px;font-size:13px;color:var(--ink);cursor:pointer;display:flex;align-items:center;justify-content:center}
+  .dr-cell:hover:not(:disabled):not(.end-cap){background:var(--violet-100)}
+  .dr-cell.muted,.dr-cell:disabled{color:#c7ccd4;cursor:default}
+  .dr-cell.in-range{background:var(--violet-100);border-radius:0}
+  .dr-cell.end-cap{background:var(--violet);color:#fff}
+  .dr-cell.cap-start{border-top-left-radius:9px;border-bottom-left-radius:9px}
+  .dr-cell.cap-end{border-top-right-radius:9px;border-bottom-right-radius:9px}
+  .dr-foot{display:flex;align-items:center;justify-content:space-between;margin-top:8px;font-size:12px;color:var(--muted)}
+  .dr-clear{border:0;background:transparent;color:var(--violet);font-weight:700;cursor:pointer;font-size:12px}
   .chips{display:flex;flex-wrap:wrap;gap:8px}
   .chip{border:1px solid var(--line);background:#fff;border-radius:999px;padding:8px 13px;font-size:13px;font-weight:600;color:var(--ink-soft);cursor:pointer;user-select:none;transition:all .12s}
   .chip.on{background:var(--violet);border-color:var(--violet);color:#fff}
@@ -189,7 +214,24 @@
       </div>
       <div class="field">
         <label>When</label>
-        <div class="row2"><input id="start" type="date" value="2026-09-11" /><input id="end" type="date" value="2026-09-16" /></div>
+        <div class="daterange" id="dateRange">
+          <button type="button" class="dr-display" id="drDisplay" aria-haspopup="dialog" aria-expanded="false">
+            <span id="drText">Select dates</span><span class="dr-cal">📅</span>
+          </button>
+          <div class="dr-pop" id="drPop" hidden>
+            <div class="dr-head">
+              <button type="button" class="dr-nav" id="drPrev" aria-label="Previous month">‹</button>
+              <div class="dr-title" id="drTitle"></div>
+              <button type="button" class="dr-nav" id="drNext" aria-label="Next month">›</button>
+            </div>
+            <div class="dr-dow"><span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span></div>
+            <div class="dr-grid" id="drGrid"></div>
+            <div class="dr-foot"><span id="drHint">Pick your start date</span><button type="button" class="dr-clear" id="drClear">Clear</button></div>
+          </div>
+        </div>
+        <!-- downstream code (collectTrip/daysBetween/fmtRange) still reads these -->
+        <input type="hidden" id="start" value="2026-09-11" />
+        <input type="hidden" id="end" value="2026-09-16" />
       </div>
       <div class="field">
         <label>Travel companions</label>
@@ -852,6 +894,67 @@
   (function applyBrand(){
     const b=$('.brand'); if(b) b.innerHTML=`<span class="dot">✈</span> ${escapeHTML(CONFIG.brand.name)} <span class="sub">${escapeHTML(CONFIG.brand.tagline)}</span>`;
     document.title = `${CONFIG.brand.name} · ${CONFIG.brand.tagline}`;
+  })();
+
+  /* ============================================================
+     SINGLE RANGE DATE PICKER
+     One control, pick start → end directly. Writes YYYY-MM-DD into the hidden
+     #start / #end inputs so collectTrip()/daysBetween()/fmtRange() are unchanged.
+     ============================================================ */
+  (function initDatePicker(){
+    const disp=$('#drDisplay'), pop=$('#drPop'), grid=$('#drGrid'), title=$('#drTitle');
+    const hint=$('#drHint'), txt=$('#drText'), startEl=$('#start'), endEl=$('#end');
+    if(!disp) return;
+    const parse=s=>{ if(!s) return null; const [y,m,d]=s.split('-').map(Number); return new Date(y,m-1,d); };
+    const iso=dt=>`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+    const same=(a,b)=>!!a&&!!b&&a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate();
+    const fmt=dt=>dt.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+    let start=parse(startEl.value), end=parse(endEl.value);
+    let view=new Date((start||new Date()).getFullYear(),(start||new Date()).getMonth(),1);
+
+    function commit(){
+      startEl.value = start?iso(start):''; endEl.value = end?iso(end):'';
+      if(start&&end) txt.textContent=`${fmt(start)} – ${fmt(end)}, ${end.getFullYear()}`;
+      else if(start)  txt.textContent=`${fmt(start)} – select end date`;
+      else            txt.textContent='Select dates';
+    }
+    function render(){
+      title.textContent=view.toLocaleDateString('en-US',{month:'long',year:'numeric'});
+      const startDow=new Date(view.getFullYear(),view.getMonth(),1).getDay();
+      const daysInMonth=new Date(view.getFullYear(),view.getMonth()+1,0).getDate();
+      let html='';
+      for(let i=0;i<startDow;i++) html+=`<span class="dr-cell muted"></span>`;
+      for(let d=1;d<=daysInMonth;d++){
+        const cur=new Date(view.getFullYear(),view.getMonth(),d);
+        let cls='dr-cell';
+        if(start&&end&&cur>start&&cur<end) cls+=' in-range';
+        if(same(cur,start)) cls+=' end-cap cap-start'+(end?'':' cap-end');
+        if(same(cur,end))   cls+=' end-cap cap-end'+(same(start,end)?' cap-start':'');
+        html+=`<button type="button" class="${cls}" data-d="${d}">${d}</button>`;
+      }
+      grid.innerHTML=html;
+      hint.textContent=(!start||(start&&end))?'Pick your start date':'Pick your end date';
+    }
+    const open=()=>{ pop.hidden=false; disp.classList.add('open'); disp.setAttribute('aria-expanded','true');
+      view=new Date((start||new Date()).getFullYear(),(start||new Date()).getMonth(),1); render(); };
+    const close=()=>{ pop.hidden=true; disp.classList.remove('open'); disp.setAttribute('aria-expanded','false'); };
+
+    disp.addEventListener('click',e=>{ e.stopPropagation(); pop.hidden?open():close(); });
+    $('#drPrev').addEventListener('click',e=>{ e.stopPropagation(); view=new Date(view.getFullYear(),view.getMonth()-1,1); render(); });
+    $('#drNext').addEventListener('click',e=>{ e.stopPropagation(); view=new Date(view.getFullYear(),view.getMonth()+1,1); render(); });
+    $('#drClear').addEventListener('click',e=>{ e.stopPropagation(); start=end=null; commit(); render(); });
+    grid.addEventListener('click',e=>{
+      const b=e.target.closest('button.dr-cell'); if(!b) return; e.stopPropagation();
+      const cur=new Date(view.getFullYear(),view.getMonth(),+b.dataset.d);
+      if(!start || (start&&end)){ start=cur; end=null; }   // start a fresh range
+      else if(cur<start){ start=cur; }                     // clicked before start → move start
+      else { end=cur; }                                    // complete the range
+      commit(); render();
+      if(start&&end) setTimeout(close,160);                // auto-close once a full range is picked
+    });
+    pop.addEventListener('click',e=>e.stopPropagation());
+    document.addEventListener('click',()=>{ if(!pop.hidden) close(); });
+    commit();
   })();
 
   setStatus('Connecting to Ada…','busy');
