@@ -862,6 +862,8 @@
      probes. Runs BEFORE embed2.js so it can wrap the adaSettings callbacks. Delete to remove. -->
 <script>
 (function(){
+  // Hidden for clients. Append ?debug (e.g. ...index.html?debug) to the URL to show the panel.
+  if(!/[?&]debug\b/i.test(location.search)) return;
   const MONO="ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace";
   let open=true, evt=0, recv=0;
   const seen=new Map();
