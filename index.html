@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Journify · AI Trip Planner (Ada)</title>
+<style>
+  :root{
+    --violet:#6d28d9; --violet-600:#7c3aed; --violet-100:#ede9fe;
+    --orange:#ff6a00; --ink:#101820; --ink-soft:#3a4551; --muted:#7a8593;
+    --line:#e7e9ee; --bg:#f4f5f8; --card:#fff; --ok:#16a34a;
+    --radius:18px; --shadow:0 10px 30px rgba(16,24,32,.10); --shadow-sm:0 2px 10px rgba(16,24,32,.06);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+    color:var(--ink);
+    background:
+      radial-gradient(1200px 600px at 80% -10%, #efe7ff 0%, rgba(239,231,255,0) 55%),
+      radial-gradient(900px 500px at -10% 10%, #ffece0 0%, rgba(255,236,224,0) 50%),
+      var(--bg);
+    min-height:100vh;
+  }
+  .topbar{display:flex;align-items:center;gap:14px;padding:14px 22px;position:sticky;top:0;z-index:50;
+    background:rgba(255,255,255,.72);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:20px;letter-spacing:-.02em}
+  .brand .dot{width:26px;height:26px;border-radius:8px;background:linear-gradient(135deg,var(--violet),var(--orange));display:grid;place-items:center;color:#fff;font-size:14px}
+  .brand .sub{font-weight:600;font-size:11px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+  .spacer{flex:1}
+  .mode{display:flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--line);border-radius:999px;padding:4px;box-shadow:var(--shadow-sm)}
+  .mode button{border:0;background:transparent;padding:7px 14px;border-radius:999px;cursor:pointer;font-weight:700;font-size:12.5px;color:var(--muted)}
+  .mode button.active{background:var(--ink);color:#fff}
+  .status{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted);font-weight:600}
+  .status .led{width:9px;height:9px;border-radius:50%;background:#c7ccd4}
+  .status.on .led{background:var(--ok);box-shadow:0 0 0 4px rgba(22,163,74,.15)}
+  .status.busy .led{background:var(--orange);box-shadow:0 0 0 4px rgba(255,106,0,.15);animation:pulse 1s infinite}
+  @keyframes pulse{50%{opacity:.4}}
+
+  .wrap{max-width:1120px;margin:0 auto;padding:26px 22px 90px;display:grid;grid-template-columns:400px 1fr;gap:26px}
+  @media(max-width:920px){.wrap{grid-template-columns:1fr}}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden}
+  .panel-head{padding:18px 20px 6px}
+  .panel-head h2{margin:0;font-size:18px;letter-spacing:-.01em}
+  .panel-head p{margin:6px 0 0;color:var(--muted);font-size:13px;line-height:1.5}
+  .panel-body{padding:16px 20px 20px}
+
+  .field{margin-bottom:14px}
+  .field label{display:block;font-size:12px;font-weight:700;color:var(--ink-soft);margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em}
+  .field input, .field select{width:100%;padding:12px 13px;border:1px solid var(--line);border-radius:12px;font-size:14px;color:var(--ink);background:#fbfbfd;outline:none;transition:border-color .15s, box-shadow .15s}
+  .field input:focus, .field select:focus{border-color:var(--violet);box-shadow:0 0 0 3px var(--violet-100)}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .chips{display:flex;flex-wrap:wrap;gap:8px}
+  .chip{border:1px solid var(--line);background:#fff;border-radius:999px;padding:8px 13px;font-size:13px;font-weight:600;color:var(--ink-soft);cursor:pointer;user-select:none;transition:all .12s}
+  .chip.on{background:var(--violet);border-color:var(--violet);color:#fff}
+  .chip:active{transform:scale(.97)}
+  .cta{width:100%;margin-top:8px;padding:15px;border:0;border-radius:14px;cursor:pointer;background:linear-gradient(135deg,var(--violet),var(--violet-600));color:#fff;font-size:15px;font-weight:800;box-shadow:0 8px 20px rgba(109,40,217,.35);transition:transform .1s, box-shadow .1s}
+  .cta:hover{transform:translateY(-1px)}
+  .cta:disabled{opacity:.55;cursor:not-allowed;transform:none;box-shadow:none}
+  .foot-note{font-size:11px;color:var(--muted);text-align:center;margin-top:12px;line-height:1.5}
+  .presets{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+  .preset{font-size:12px;font-weight:700;color:var(--violet);background:var(--violet-100);border:0;border-radius:999px;padding:6px 11px;cursor:pointer}
+
+  .result{min-height:520px;display:flex;flex-direction:column}
+  .empty{flex:1;display:grid;place-items:center;text-align:center;padding:60px 30px;color:var(--muted)}
+  .empty .big{font-size:46px;margin-bottom:8px}
+  .empty h3{color:var(--ink);margin:.2em 0}
+
+  .hero{position:relative;height:220px;background:#ddd;display:flex;align-items:flex-end}
+  .hero img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  .hero .scrim{position:absolute;inset:0;background:linear-gradient(180deg,rgba(16,24,32,0) 30%,rgba(16,24,32,.78) 100%)}
+  .hero .cap{position:relative;padding:20px;color:#fff}
+  .hero .cap .k{font-size:12px;font-weight:700;opacity:.9;letter-spacing:.06em;text-transform:uppercase}
+  .hero .cap h2{margin:4px 0 2px;font-size:26px;letter-spacing:-.02em}
+  .hero .cap .meta{font-size:13px;opacity:.92}
+
+  .toolbar{display:flex;gap:8px;padding:14px 20px;border-bottom:1px solid var(--line);flex-wrap:wrap;align-items:center}
+  .btn{border:1px solid var(--line);background:#fff;border-radius:11px;padding:9px 13px;font-size:13px;font-weight:700;color:var(--ink);cursor:pointer;display:inline-flex;gap:7px;align-items:center;transition:background .12s}
+  .btn:hover{background:#f6f4ff}
+  .btn.book{background:linear-gradient(135deg,var(--orange),#ff8b3d);color:#fff;border:0}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .tabs{display:flex;gap:4px;padding:12px 20px 0;overflow-x:auto}
+  .tab{white-space:nowrap;border:0;background:transparent;padding:9px 14px;border-radius:10px 10px 0 0;font-weight:700;font-size:13.5px;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent}
+  .tab.on{color:var(--violet);border-bottom-color:var(--violet)}
+  /* a freshly-generated day tab the user hasn't opened yet — lights up to signal "it's here" */
+  .tab.newgen{color:var(--violet);animation:tabglow 1.5s ease-in-out infinite}
+  .tab.newgen::after{content:"";display:inline-block;width:7px;height:7px;margin-left:7px;vertical-align:middle;
+    border-radius:50%;background:var(--orange);animation:tabdot 1.5s infinite}
+  @keyframes tabglow{50%{color:var(--orange)}}
+  @keyframes tabdot{0%{box-shadow:0 0 0 0 rgba(255,106,0,.55)}70%{box-shadow:0 0 0 6px rgba(255,106,0,0)}100%{box-shadow:0 0 0 0 rgba(255,106,0,0)}}
+  /* a day tab whose content is still streaming in — visible but muted, with a soft pulse */
+  .tab.pending{color:var(--muted);opacity:.6;animation:tabwait 1.3s ease-in-out infinite}
+  @keyframes tabwait{50%{opacity:1}}
+
+  .stream{padding:8px 20px 20px}
+  .daycard{border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin:12px 0;box-shadow:var(--shadow-sm)}
+  .daycard h3{margin:0 0 4px;font-size:16px;letter-spacing:-.01em;display:flex;align-items:center;gap:9px}
+  .daycard h3 .badge{background:var(--violet-100);color:var(--violet);font-size:12px;font-weight:800;border-radius:8px;padding:3px 9px}
+  .daycard ul{margin:8px 0 0;padding-left:18px}
+  .daycard li{margin:5px 0;line-height:1.55;font-size:14px}
+  .daycard p{margin:6px 0;line-height:1.6;font-size:14px;color:var(--ink-soft)}
+  .place{display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-top:1px dashed var(--line)}
+  .place:first-of-type{border-top:0}
+  .place .thumb{width:64px;height:64px;border-radius:12px;object-fit:cover;flex:none;background:#eee}
+  .place .p-body{flex:1;min-width:0}
+  .place .p-title{font-weight:700;font-size:14.5px}
+  .place .p-sub{font-size:12.5px;color:var(--muted);margin-top:2px}
+  .overview-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin:12px 0}
+  .stat{background:#fbfbfd;border:1px solid var(--line);border-radius:12px;padding:12px}
+  .stat .l{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+  .stat .v{font-size:16px;font-weight:800;margin-top:3px}
+
+  .thinking{display:flex;gap:10px;align-items:center;padding:16px 20px;color:var(--muted);font-size:14px}
+  .thinking .spin{width:18px;height:18px;border:3px solid var(--violet-100);border-top-color:var(--violet);border-radius:50%;animation:spin .8s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .md-h{margin:14px 0 4px;font-size:14.5px;font-weight:800;color:var(--ink);letter-spacing:-.01em}
+  .daycard .md-h:first-child{margin-top:0}
+  /* Ada typing indicator */
+  .typing{display:flex;gap:10px;align-items:center;padding:16px 20px;margin:4px 12px 14px;background:var(--violet-100);border-radius:12px;color:var(--violet);font-weight:700;font-size:13.5px}
+  .typing .dots{display:inline-flex;gap:4px}
+  .typing .dots i{width:7px;height:7px;border-radius:50%;background:var(--violet);display:inline-block;animation:bounce 1.2s infinite ease-in-out}
+  .typing .dots i:nth-child(2){animation-delay:.15s}
+  .typing .dots i:nth-child(3){animation-delay:.3s}
+  @keyframes bounce{0%,80%,100%{transform:translateY(0);opacity:.4}40%{transform:translateY(-5px);opacity:1}}
+  .raw{white-space:pre-wrap;font-size:13.5px;line-height:1.6;color:var(--ink-soft);padding:0 20px 12px}
+
+  .ask{border-top:1px solid var(--line);padding:14px 20px;display:flex;gap:8px;align-items:center}
+  .ask input{flex:1;padding:12px 13px;border:1px solid var(--line);border-radius:12px;font-size:14px;outline:none}
+  .ask input:focus{border-color:var(--violet);box-shadow:0 0 0 3px var(--violet-100)}
+  .ask button{border:0;background:var(--violet);color:#fff;border-radius:12px;padding:12px 16px;font-weight:800;cursor:pointer}
+  .qas{padding:4px 20px 8px}
+  .qa{margin:10px 0}
+  .qa .q{font-weight:700;font-size:14px}
+  .qa .a{font-size:14px;color:var(--ink-soft);line-height:1.6;margin-top:3px}
+
+  .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:12px 18px;border-radius:12px;font-size:13.5px;font-weight:600;box-shadow:var(--shadow);z-index:100;opacity:0;pointer-events:none;transition:opacity .2s}
+  .toast.show{opacity:1}
+  .printable{display:none}
+
+  /* ---------- deterministic WYSIWYG print ---------- */
+  #printArea{display:none}
+  .print-head{padding:6px 24px 4px}
+  .print-brand{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--violet);font-weight:800}
+  .print-head h1{margin:6px 0 2px;font-size:26px}
+  .print-meta{color:#555;font-size:13px}
+  .print-foot{font-size:11px;color:#888;padding:12px 24px;border-top:1px solid var(--line);margin-top:12px}
+  @media print{
+    @page{ margin:14mm }
+    body{ background:#fff !important }
+    body > *:not(#printArea){ display:none !important }   /* hide topbar, form, results, debug, toast */
+    #printArea{ display:block !important }
+    #printArea .hero{ height:180px; border-radius:0 }
+    #printArea .stream{ padding:0 24px }
+    #printArea .daycard{ box-shadow:none; break-inside:avoid; page-break-inside:avoid }
+    #printArea .toolbar, #printArea .tabs, #printArea .ask, #printArea .typing{ display:none !important }
+    a{ color:#000; text-decoration:underline }
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand"><span class="dot">✈</span> Journify <span class="sub">AI&nbsp;Trip&nbsp;Planner</span></div>
+  <div class="spacer"></div>
+  <div class="mode" id="mode">
+    <button data-mode="live" class="active">Live&nbsp;·&nbsp;Ada</button>
+    <button data-mode="demo">Offline&nbsp;preview</button>
+  </div>
+  <div class="status" id="status"><span class="led"></span><span id="statusText">Connecting to Ada…</span></div>
+</div>
+
+<div class="wrap">
+  <!-- LEFT: form -->
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Let us help you plan your next trip</h2>
+      <p>Enter a few details — your AI Agent builds a day-by-day itinerary.</p>
+    </div>
+    <div class="panel-body">
+      <div class="field">
+        <label>Where</label>
+        <input id="dest" placeholder="e.g. Tokyo, Japan" value="Tokyo, Japan" />
+        <div class="presets" id="presets">
+          <button class="preset" data-c="Tokyo, Japan">Tokyo</button>
+          <button class="preset" data-c="Seoul, South Korea">Seoul</button>
+          <button class="preset" data-c="Bangkok, Thailand">Bangkok</button>
+          <button class="preset" data-c="Sydney, Australia">Sydney</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>When</label>
+        <div class="row2"><input id="start" type="date" value="2026-09-11" /><input id="end" type="date" value="2026-09-16" /></div>
+      </div>
+      <div class="field">
+        <label>Travel companions</label>
+        <div class="chips" data-single="true" id="companions">
+          <span class="chip" data-v="Solo">Solo</span><span class="chip on" data-v="Couple">Couple</span>
+          <span class="chip" data-v="Family">Family</span><span class="chip" data-v="Friends">Friends</span>
+        </div>
+      </div>
+      <div class="field">
+        <label>Travel styles</label>
+        <div class="chips" id="styles">
+          <span class="chip on" data-v="Culture">Culture</span><span class="chip on" data-v="Food & Drink">Food &amp; Drink</span>
+          <span class="chip" data-v="Adventure">Adventure</span><span class="chip" data-v="Relaxation">Relaxation</span>
+          <span class="chip" data-v="Nature">Nature</span><span class="chip" data-v="Romantic">Romantic</span>
+          <span class="chip" data-v="Surprise me">Surprise me</span><span class="chip" data-v="Other">Other</span>
+        </div>
+        <input id="styleOther" placeholder="Describe your own style…" style="display:none;margin-top:8px" />
+      </div>
+      <div class="field">
+        <label>Budget</label>
+        <div class="chips" data-single="true" id="budget">
+          <span class="chip" data-v="Budget">Budget</span><span class="chip on" data-v="Mid-range">Mid-range</span><span class="chip" data-v="Luxury">Luxury</span>
+        </div>
+      </div>
+      <div class="field">
+        <label>Flight tickets ready?</label>
+        <div class="chips" data-single="true" id="flight">
+          <span class="chip" data-v="Yes">Yes</span><span class="chip on" data-v="No">No, plan flights too</span>
+        </div>
+      </div>
+      <button class="cta" id="plan">Start planning ✨</button>
+      <div class="foot-note" id="planNote">Itinerary generated by AI — please verify details before booking.</div>
+    </div>
+  </section>
+
+  <!-- RIGHT: result -->
+  <section class="panel result" id="result">
+    <div class="empty" id="empty">
+      <div>
+        <div class="big">🗺️</div>
+        <h3>Your plan will appear here</h3>
+        <p>Fill in the form and hit <strong>Start planning</strong>.<br/>Your Ada agent creates a conversation, builds the itinerary,<br/>and it streams in right here.</p>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="printable" id="printArea"></div>
+<div class="toast" id="toast"></div>
+
+<!-- ============================================================================
+     MAIN APP + ADA WIRING (proven auto-start pattern from cebu-flight-recommender)
+     window.adaSettings is defined BEFORE embed2.js; the <script id="__ada" data-handle>
+     tag at the bottom of <body> is what actually auto-bootstraps the headless conversation.
+     ============================================================================ -->
+<script>
+  /* ==================================================================
+     ▼▼▼  CUSTOMER SETTINGS — EDIT EVERYTHING HERE, THEN YOU'RE DONE  ▼▼▼
+     Drop this HTML in, change the values below, open over HTTPS. No other
+     edits needed. All behaviour is deterministic (no hidden LLM decisions).
+     ================================================================== */
+  const CONFIG = {
+    ada: {
+      handle: "journify-itinerary",   // your Ada bot handle
+      cluster: "",                    // "" = default US cluster; else "us2" / "eu" / …
+      newConversationOnLoad: true,    // start a FRESH Ada conversation on every page load
+    },
+    brand: { name: "Journify", tagline: "AI Trip Planner" },
+
+    // The EXACT text sent to Ada (deterministic, no LLM). Tokens you can use:
+    //   {dest} {city} {country} {days} {dates} {start} {end}
+    //   {companions} {styles} {budget} {flight}
+    // Keep the whole message under 500 characters (Ada's sendMessage limit).
+    messageTemplate: [
+      "Plan a full trip itinerary for me.",
+      "Destination: {dest}",
+      "Dates: {dates} ({days} days)",
+      "Travellers: {companions}",
+      "Styles: {styles}",
+      "Budget: {budget}",
+      "Flights ready: {flight}",
+      "Give an overview and a day-by-day plan.",
+    ].join("\n"),
+
+    timing: { itineraryQuietMs: 25000 }, // mark plan "done" this long after Ada's last bubble
+
+    booking: {
+      flightLabel: "✈️ Book your flight NOW!",
+      // Clicking "Book your flight NOW!" sends this exact trigger phrase to the
+      // journify-itinerary agent (tokens: {start}{end}{city}). The booking playbook
+      // runs silently, then fires the `flight_booking` handoff event which this page
+      // catches (eventCallbacks below) and POST-submits to the MAS booking page.
+      // Keep it in the exact shape the booking playbook is trained to trigger on.
+      flightTrigger: "book flight from {start} to {end} from KUL to {city}",
+    },
+
+    print: {
+      includeHeroImage: true,          // include the destination image on the printout
+      footer: "Itinerary generated by AI — please verify before booking.",
+    },
+  };
+  /* ▲▲▲  END SETTINGS  ▲▲▲ */
+
+  const ADA_HANDLE = CONFIG.ada.handle;
+
+  const $  = s => document.querySelector(s);
+  const $$ = s => [...document.querySelectorAll(s)];
+  const delay = ms => new Promise(r=>setTimeout(r,ms));
+
+  const state = {
+    mode:'live', adaReady:false, convReady:false, awaiting:null, /* 'itinerary' | 'qa' | null */
+    itinSession:false, trip:null, raw:'', activeTab:'Overview', qas:[], pendingQA:null, doneTimer:null,
+    seenTabs:new Set(['Overview']),  /* day tabs the user has already opened — the rest "light up" as they generate */
+  };
+
+  const toastEl=$('#toast');
+  function toast(m){ toastEl.textContent=m; toastEl.classList.add('show'); clearTimeout(toast._t); toast._t=setTimeout(()=>toastEl.classList.remove('show'),2800); }
+  function setStatus(t,cls){ const s=$('#status'); s.className='status '+(cls||''); $('#statusText').textContent=t; }
+
+  /* ---------- error detail (AdaEmbedError keeps message/code non-enumerable) ---------- */
+  function errDetail(err){ if(!err) return 'unknown'; try{ const o={}; for(const k of Object.getOwnPropertyNames(err)) o[k]=err[k]; return JSON.stringify(o);}catch(e){return String(err);} }
+  // Transient send failures worth retrying: rate-limit AND "chat frame did not respond in time"
+  // (the frame is briefly unresponsive right after start/reset).
+  function isTransient(err){ return /rate_limited|in flight|did not respond|timed?\s*out|timeout/i.test((err&&err.message)||String(err)); }
+  async function sendToAda(text){
+    let last;
+    for(let i=1;i<=5;i++){
+      try{ return await window.adaEmbed.sendMessage(text); }
+      catch(err){ last=err; if(!isTransient(err)||i===5) throw err;
+        console.warn('[ada] send retry '+i+' after: '+((err&&err.message)||err)); await delay(700*i); }
+    }
+    throw last;
+  }
+
+  /* ============ chip / preset / mode wiring ============ */
+  $$('.chips').forEach(g=>{
+    const single=g.dataset.single==='true';
+    g.addEventListener('click',e=>{ const c=e.target.closest('.chip'); if(!c) return;
+      if(single){ g.querySelectorAll('.chip').forEach(x=>x.classList.remove('on')); c.classList.add('on'); }
+      else c.classList.toggle('on'); });
+  });
+  $('#presets').addEventListener('click',e=>{ const b=e.target.closest('.preset'); if(b) $('#dest').value=b.dataset.c; });
+  function chipVals(id){ return $$('#'+id+' .chip.on').map(c=>c.dataset.v); }
+
+  // Travel-styles "Other" reveals a free-text box; "Surprise me" is mutually exclusive
+  // with the specific styles (picking it clears the others, and vice-versa).
+  $('#styles').addEventListener('click',e=>{
+    const c=e.target.closest('.chip'); if(!c) return;
+    const v=c.dataset.v, group=$('#styles');
+    if(v==='Surprise me' && c.classList.contains('on')){
+      group.querySelectorAll('.chip').forEach(x=>{ if(x!==c) x.classList.remove('on'); });
+      $('#styleOther').style.display='none';
+    } else if(v!=='Surprise me'){
+      const sm=[...group.querySelectorAll('.chip')].find(x=>x.dataset.v==='Surprise me'); if(sm) sm.classList.remove('on');
+    }
+    if(v==='Other'){
+      const on=c.classList.contains('on');
+      $('#styleOther').style.display = on ? 'block':'none';
+      if(on) $('#styleOther').focus();
+    }
+  });
+
+  $('#mode').addEventListener('click',e=>{
+    const b=e.target.closest('button'); if(!b) return;
+    $$('#mode button').forEach(x=>x.classList.remove('active')); b.classList.add('active');
+    state.mode=b.dataset.mode;
+    if(state.mode==='demo'){ setStatus('Offline preview',''); $('#planNote').textContent='Offline preview — sample itinerary, not from Ada.'; }
+    else { setStatus(state.convReady?'Live · connected':'Connecting to Ada…', state.convReady?'on':'busy'); $('#planNote').textContent='Itinerary generated by AI — please verify details before booking.'; }
+  });
+
+  /* ============ trip params ============ */
+  function collectStyles(){
+    let styles=chipVals('styles');
+    if(styles.includes('Other')){                 // replace "Other" with the typed text
+      const custom=($('#styleOther').value||'').trim();
+      styles=styles.filter(s=>s!=='Other');
+      if(custom) styles.push(custom);
+    }
+    return styles;
+  }
+  function collectTrip(){
+    const dest=$('#dest').value.trim()||'Tokyo, Japan';
+    const [city,country]=dest.split(',').map(s=>s.trim());
+    const start=$('#start').value, end=$('#end').value, days=daysBetween(start,end);
+    return { dest, city:city||dest, country:country||'', start, end, days, dates:fmtRange(start,end),
+      companions:chipVals('companions')[0]||'Solo', styles:collectStyles(),
+      budget:chipVals('budget')[0]||'Mid-range', flight:chipVals('flight')[0]||'No' };
+  }
+  function daysBetween(a,b){ if(!a||!b) return 4; const d=(new Date(b)-new Date(a))/86400000; return Math.max(1,Math.round(d)+1); }
+  function fmtRange(a,b){ if(!a||!b) return ''; const o={month:'short',day:'numeric'}; const y=new Date(b).getFullYear();
+    return new Date(a).toLocaleDateString('en-US',o)+' – '+new Date(b).toLocaleDateString('en-US',o)+', '+y; }
+
+  // The exact text sent to Ada — configured in CONFIG.messageTemplate (deterministic, no LLM).
+  function tripMessage(t){
+    const tokens = {
+      dest:t.dest, city:t.city, country:t.country, days:t.days, dates:t.dates,
+      start:t.start, end:t.end, companions:t.companions,
+      styles:(t.styles.join(', ')||'General'), budget:t.budget, flight:t.flight,
+    };
+    return CONFIG.messageTemplate.replace(/\{(\w+)\}/g, (_,k)=> (k in tokens ? tokens[k] : '{'+k+'}'));
+  }
+
+  /* ============ imagery (swap for a real image API / DALL·E) ============ */
+  const CITY_IMG={
+    tokyo:'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b2/Skyscrapers_of_Shinjuku_2009_January.jpg/1280px-Skyscrapers_of_Shinjuku_2009_January.jpg',
+    seoul:'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8e/Seoul_at_night_from_Namsan.jpg/1280px-Seoul_at_night_from_Namsan.jpg',
+    bangkok:'https://upload.wikimedia.org/wikipedia/commons/thumb/9/9a/Bangkok_skytrain_sunset.jpg/1280px-Bangkok_skytrain_sunset.jpg',
+    sydney:'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a4/Sydney_Opera_House_and_Harbour_Bridge_Dusk_%282%29_2019-06-21.jpg/1280px-Sydney_Opera_House_and_Harbour_Bridge_Dusk_%282%29_2019-06-21.jpg',
+  };
+  function cityImage(city){ const k=(city||'').toLowerCase(); for(const c in CITY_IMG){ if(k.includes(c)) return CITY_IMG[c]; }
+    return `https://loremflickr.com/1280/720/${encodeURIComponent(city+' skyline city')}`; }
+  function placeThumb(name,city){ return `https://loremflickr.com/128/128/${encodeURIComponent(name+' '+(city||''))}`; }
+
+  /* ============================================================
+     PLAN button
+     ============================================================ */
+  $('#plan').addEventListener('click', async ()=>{
+    const t=collectTrip();
+    state.trip=t; state.raw=''; state.qas=[]; state.activeTab='Overview';
+    state.seenTabs=new Set(['Overview']);   // fresh plan → every new day tab lights up
+    clearTimeout(state.doneTimer);
+
+    if(state.mode==='demo'){ renderGenerating(t); await demoGenerate(t); return; }
+
+    // LIVE
+    if(!state.adaReady || !state.convReady){ toast('Still connecting to Ada — one moment…'); setStatus(state.adaReady?'Starting a new conversation…':'Connecting to Ada…','busy'); return; }
+    renderGenerating(t);
+    $('#plan').disabled=true;
+    setStatus('Ada · generating…','busy');
+    state.awaiting='itinerary';
+    state.itinSession=true;        // stays true so ALL itinerary bubbles are captured
+    const msg=tripMessage(t);
+    console.log('[journify] sending itinerary request, len='+msg.length+(msg.length>500?' ⚠ >500 CHAR LIMIT':''));
+    try{
+      const sent=await sendToAda(msg);
+      console.log('[journify] sent itinerary request, id=', sent&&sent.id, '→ conversation created');
+    }catch(err){
+      state.awaiting=null; $('#plan').disabled=false;
+      setStatus('Ada · send failed','');
+      const reason=(err&&(err.message||err.code))||'(no message)';
+      toast('Could not send to Ada: '+reason);
+      // full non-enumerable detail (message/code/stack) so the debug panel shows the real cause
+      console.error('[journify] send failed:', reason, '| full:', errDetail(err));
+    }
+    // Bot replies arrive via ada:message:received -> handleBotMessage()
+  });
+
+  /* ============================================================
+     INBOUND: every bot message from Ada lands here
+     The v7 itinerary arrives across ~4 bubbles; we accumulate + render
+     progressively, and finalise on a quiet period (or ##End## marker).
+     ============================================================ */
+  // The client's canned greeting lines — filtered out so they never pollute the itinerary.
+  const GREETINGS=[/^hello! i'm an ai agent/i, /^i'm still learning/i, /^how may i help you today/i];
+  function isGreeting(t){ return GREETINGS.some(re=>re.test(t)); }
+
+  // v7 itinerary streams across ~5 bubbles, up to ~19s apart. Wait this long after the
+  // LAST bubble before declaring the plan "done" (enables Print/Book). Late bubbles that
+  // arrive after "done" are still appended, because state.itinSession stays true.
+  const ITIN_QUIET_MS = CONFIG.timing.itineraryQuietMs;
+
+  function handleBotMessage(body, msg){
+    if(!body) return;
+    const text=body.trim();
+    if(!text) return;
+    if(/##internal##/i.test(text)) return;                 // internal, never show
+
+    // ---- follow-up Q&A answer ----
+    if(state.awaiting==='qa' && state.pendingQA!=null){
+      const idx=state.pendingQA;
+      state.qas[idx]._acc = (state.qas[idx]._acc? state.qas[idx]._acc+'\n\n':'')+text;
+      state.qas[idx].a = state.qas[idx]._acc;
+      renderItinerary(state.trip,true);
+      clearTimeout(state.doneTimer);
+      state.doneTimer=setTimeout(()=>{ state.awaiting=null; state.pendingQA=null; renderItinerary(state.trip,true); }, 4000);
+      return;
+    }
+
+    // ---- itinerary bubbles (accumulate every one) ----
+    if(state.itinSession && state.trip){
+      if(isGreeting(text)) return;                         // skip the welcome lines
+      state.raw += (state.raw?'\n\n':'') + text.replace(/##end##/ig,'').trim();
+      state.awaiting='itinerary';
+      setStatus('Ada is writing your itinerary…','busy');
+      renderItinerary(state.trip,false);                   // progressive render
+      clearTimeout(state.doneTimer);
+      state.doneTimer=setTimeout(finishItinerary, ITIN_QUIET_MS);
+      return;
+    }
+    // otherwise (e.g. greeting before any request) — ignore
+  }
+  function finishItinerary(){
+    if(!state.itinSession) return;
+    state.awaiting=null; $('#plan').disabled=false;
+    setStatus('Live · connected','on');
+    renderItinerary(state.trip,true);
+    toast('Itinerary ready');
+    console.log('[journify] itinerary complete —', state.raw.length, 'chars');
+  }
+
+  /* ============================================================
+     RENDER
+     ============================================================ */
+  const TYPING = txt=>`<div class="typing"><span class="dots"><i></i><i></i><i></i></span> ${txt}</div>`;
+  function renderGenerating(t){
+    $('#empty')?.remove();
+    $('#result').innerHTML = heroHTML(t) + TYPING(`Ada is planning your ${t.days}-day ${t.city} trip…`);
+  }
+  function heroHTML(t){
+    return `<div class="hero">
+      <img src="${cityImage(t.city)}" alt="${t.city}" onerror="this.style.display='none'"/>
+      <div class="scrim"></div>
+      <div class="cap"><div class="k">${t.days} days · ${t.companions} · ${t.budget}</div>
+        <h2>${t.days}-Day Journey · ${t.city}</h2>
+        <div class="meta">${t.dates||''} ${t.country?('· '+t.country):''}</div></div></div>`;
+  }
+  function renderItinerary(t, done){
+    if(!t) return;
+    const s=parseItinerary(state.raw);
+    const ready=new Set(s.days.map(d=>d.label));   // day tabs that already have content
+    // Show the whole Day 1…N breakdown up-front (from the requested length) so the tabs are
+    // visible the moment generation starts — each lights up as its content streams in.
+    const tabs=['Overview', ...dayTabList(t,s,done)];
+    if(!tabs.includes(state.activeTab)) state.activeTab='Overview';
+    state.seenTabs.add(state.activeTab);   // whatever the user is currently viewing counts as seen
+    $('#result').innerHTML =
+      heroHTML(t) + toolbarHTML(done) + tabsHTML(tabs, ready) +
+      `<div class="stream" id="stream">${ state.activeTab==='Overview'
+        ? overviewHTML(t,s) : dayHTML(t, s.days.find(d=>d.label===state.activeTab), done) }</div>` +
+      (done ? askHTML() : TYPING('Ada is still writing… more is on the way'));
+    wireResult(t, done);
+  }
+  // Ordered "Day 1 … Day N" tab labels. While generating, show up to the requested day count
+  // (or however many have parsed, whichever is greater) so the breakdown is visible immediately;
+  // once done, show exactly the days Ada actually produced.
+  function dayTabList(t,s,done){
+    const numOf=l=>{ const m=/day\s*(\d+)/i.exec(l); return m?+m[1]:0; };
+    const parsedMax=Math.max(0, ...s.days.map(d=>numOf(d.label)));
+    const target = done ? parsedMax : Math.max(t.days||0, parsedMax);
+    const out=[]; for(let i=1;i<=target;i++) out.push('Day '+i); return out;
+  }
+  function toolbarHTML(done){
+    return `<div class="toolbar">
+      <button class="btn" id="btnPrint" ${done?'':'disabled'}>🖨️ Print itinerary</button>
+      <div class="spacer" style="flex:1"></div>
+      <button class="btn book" id="btnBookFlight" ${done?'':'disabled'}>${CONFIG.booking.flightLabel}</button>
+    </div>`;
+  }
+  function tabsHTML(tabs, ready){ return `<div class="tabs">${tabs.map(t=>{
+      const isDay=/^Day\b/i.test(t);
+      // A day tab whose content has just generated but hasn't been opened "lights up" to pull the eye.
+      const isNew = isDay && t!==state.activeTab && !state.seenTabs.has(t) && (!ready || ready.has(t));
+      // A day still being written shows a soft "pending" style until its content arrives.
+      const isPending = isDay && ready && !ready.has(t);
+      return `<button class="tab ${t===state.activeTab?'on':''} ${isNew?'newgen':''} ${isPending?'pending':''}" data-tab="${t}">${t}</button>`;
+    }).join('')}</div>`; }
+  function overviewHTML(t,s){
+    const preHTML=renderMD(s.pre), postHTML=renderMD(s.post);
+    const hasAdaContent = preHTML || postHTML || s.days.length;
+    // "At a glance" is only a placeholder while we wait — hide it once Ada's content arrives.
+    const glance = hasAdaContent ? '' : `<div class="daycard"><h3>At a glance</h3>
+        <p><strong>Dates:</strong> ${t.dates||'—'}</p>
+        ${t.flight==='No'?`<p><strong>Flights:</strong> Malaysia Airlines KUL ⇄ ${t.city} — add at booking.</p>`:''}
+        <p style="color:var(--muted);font-size:12.5px">Earn up to 50 Enrich points when you book this trip.</p></div>`;
+    return `<div class="overview-grid">
+        <div class="stat"><div class="l">Duration</div><div class="v">${t.days} days</div></div>
+        <div class="stat"><div class="l">Travellers</div><div class="v">${t.companions}</div></div>
+        <div class="stat"><div class="l">Budget</div><div class="v">${t.budget}</div></div>
+        <div class="stat"><div class="l">Style</div><div class="v">${t.styles[0]||'Mixed'}</div></div></div>
+      ${preHTML?`<div class="daycard">${preHTML}</div>`:''}
+      ${postHTML?`<div class="daycard">${postHTML}</div>`:''}
+      ${glance}`;
+  }
+  function dayHTML(t,day,done){
+    if(!day) return done
+      ? '<div class="raw">No content for this day.</div>'
+      : TYPING('Ada is writing this day…');
+    return `<div class="daycard"><h3><span class="badge">${day.label}</span> ${day.title||''}</h3>
+      ${renderMD(day.lines)}</div>`;
+  }
+  function askHTML(){
+    return `<div class="qas">${state.qas.map(qa=>`<div class="qa"><div class="q">You: ${escapeHTML(qa.q)}</div>
+      <div class="a">${qa.a? mdInline(qa.a):'<em>Ada is thinking…</em>'}</div></div>`).join('')}</div>
+      <div class="ask"><input id="askInput" placeholder="Ask Ada anything about the plan… (e.g. add a day trip to Nikko)"/>
+      <button id="askBtn">Ask</button></div>`;
+  }
+  function wireResult(t, done){
+    $$('.tab').forEach(tab=>tab.onclick=()=>{ state.seenTabs.add(tab.dataset.tab); state.activeTab=tab.dataset.tab; renderItinerary(t, done); });
+    const p=$('#btnPrint'); if(p) p.onclick=()=>printItinerary(t);
+    const bf=$('#btnBookFlight'); if(bf) bf.onclick=()=>bookFlight(t);
+    const ab=$('#askBtn'), ai=$('#askInput');
+    if(ab&&ai){ const go=()=>askQuestion(ai.value.trim(),t); ab.onclick=go; ai.onkeydown=e=>{if(e.key==='Enter')go();}; }
+  }
+
+  async function askQuestion(q,t){
+    if(!q) return;
+    const idx=state.qas.push({q,a:'',_acc:''})-1;
+    renderItinerary(t,true);
+    if(state.mode==='demo'){ await delay(700); state.qas[idx].a=demoAnswer(q,t); renderItinerary(t,true); return; }
+    if(!state.adaReady){ state.qas[idx].a='(not connected to Ada)'; renderItinerary(t,true); return; }
+    state.awaiting='qa'; state.pendingQA=idx;
+    try{ await sendToAda(q); }
+    catch(e){ state.qas[idx].a='(send failed) '+((e&&e.message)||e); state.awaiting=null; state.pendingQA=null; renderItinerary(t,true); }
+  }
+
+  /* ============ booking — zero-input, straight to the MAS booking page ============
+     "Book your flight NOW!" sends the exact trigger phrase to the journify-itinerary
+     agent. The booking playbook silently builds a round-trip KUL⇄{city} booking link
+     (1 adult, Economy) and fires the `flight_booking` handoff event, which is caught by
+     eventCallbacks.flight_booking (in window.adaSettings) and POST-submitted below.
+     No form, no questions — the customer is taken straight to the booking page. */
+  function fillTrigger(tmpl,t){ return tmpl.replace(/\{(\w+)\}/g,(_,k)=>({origin:'KUL',dest:t.city,city:t.city,start:t.start,end:t.end}[k]??'')); }
+  async function bookFlight(t){
+    if(state.mode==='demo'){ toast('Booking is live-only — switch to Live · Ada.'); return; }
+    if(!state.adaReady || !state.convReady){ toast('Still connecting to Ada — one moment…'); return; }
+    const phrase=fillTrigger(CONFIG.booking.flightTrigger,t);
+    toast('Preparing your Malaysia Airlines booking…');
+    console.log('[MAS] booking trigger →', phrase);
+    try{ await sendToAda(phrase); }
+    catch(err){ toast('Could not start booking: '+((err&&err.message)||err)); console.error('[MAS] booking send failed', errDetail(err)); }
+    // The redirect happens in eventCallbacks.flight_booking when Ada fires the handoff event.
+  }
+
+  /* ---- form POST helper (from mas-booking-redirect_sandbox.html) ---- */
+  function postForm(method, actionUrl, fields){
+    const form=document.createElement('form');
+    form.method=method||'POST'; form.action=actionUrl; form.target='_self'; form.style.display='none';
+    Object.entries(fields||{}).forEach(([key,value])=>{
+      if(value===undefined || value===null) return;
+      const input=document.createElement('input');
+      input.type='hidden'; input.name=key;
+      input.value = typeof value==='string' ? value : JSON.stringify(value);
+      form.appendChild(input);
+    });
+    document.body.appendChild(form); form.submit();
+  }
+  // Called by eventCallbacks.flight_booking — receives the booking url + form fields
+  // that the journify-itinerary booking playbook shipped in the handoff payload.
+  function handleFlightBooking(event){
+    console.log('booking redirect triggered from Ada', event);
+    try{
+      const globals = (event && event.user_data && event.user_data.global) || {};
+      const method = (globals.method || 'post').toUpperCase();
+      const platform = globals.platform || 'dsp';
+      const url = globals.url;
+      const fields = {
+        search: globals.search,
+        flowCode: globals.flowCode,
+        flowInfo: globals.flowInfo,
+        preferences: globals.preferences,
+        userConfig: globals.userConfig,
+      };
+      if(!url || url==='NONE'){ throw new Error('No booking URL provided'); }
+      console.log('Redirecting via', method, 'to', url, 'platform:', platform, fields);
+      postForm(method, url, fields);
+    }catch(err){ console.error('flight_booking handler error:', err); toast('Booking link unavailable — please try again.'); }
+  }
+
+  /* ============================================================
+     PRINT — deterministic & WYSIWYG.
+     Builds the printout from the SAME render functions the on-screen results use
+     (heroHTML / overviewHTML / dayHTML) with ALL days expanded, drops it into
+     #printArea, and prints THIS page (an @media print stylesheet hides everything
+     else). No popup window, so pop-up blockers can't break it, and what prints is
+     exactly what the frontend rendered. Choose "Save as PDF" in the print dialog.
+     ============================================================ */
+  function buildPrintHTML(t){
+    const s=parseItinerary(state.raw);
+    const dayCount = s.days.length || t.days;   // day count from the ACTUAL rendered plan
+    const head=`<div class="print-head">
+      <div class="print-brand">${escapeHTML(CONFIG.brand.name)} · ${escapeHTML(CONFIG.brand.tagline)}</div>
+      <h1>${dayCount}-Day Journey · ${escapeHTML(t.city)}</h1>
+      <div class="print-meta">${escapeHTML(t.dates||'')} &nbsp;·&nbsp; ${escapeHTML(t.companions)} &nbsp;·&nbsp; ${escapeHTML(t.budget)} &nbsp;·&nbsp; ${escapeHTML(t.styles.join(', '))}</div>
+    </div>`;
+    const hero = CONFIG.print.includeHeroImage ? heroHTML(t) : '';
+    const overview = `<div class="stream">${overviewHTML(t,s)}</div>`;
+    const days = s.days.map(d=>`<div class="stream">${dayHTML(t,d)}</div>`).join('');
+    const foot = `<div class="print-foot">${escapeHTML(CONFIG.print.footer)}</div>`;
+    return `<div class="print-doc">${head}${hero}${overview}${days}${foot}</div>`;
+  }
+  function printItinerary(t){
+    if(!state.raw){ toast('Nothing to print yet — wait for the itinerary.'); return; }
+    $('#printArea').innerHTML = buildPrintHTML(t);
+    window.print();   // prints THIS page; @media print shows only #printArea
+  }
+
+  /* ============ itinerary parser ============
+     The journify-itinerary playbook formats with **bold** headers, e.g.
+        **Your Tokyo Itinerary**        <- section header
+        **Overview & Routing**          <- section header
+        **Day 1 — Tokyo — Title**       <- day header
+        - **Morning:** ...              <- bullet
+        **Estimated Budget**            <- section header (after days)
+     We split into: pre (before first day), days[], post (after last day). */
+  const BOLD_LINE = /^\*\*(.+?)\*\*:?\s*$/;                 // a line that is entirely bold
+  const DAY_HDR   = /^\*\*\s*(Day\s*\d+)\b[^*]*\*\*/i;      // **Day N ...**
+  function parseItinerary(md){
+    const out={pre:[],days:[],post:[],cities:[]}; if(!md) return out;
+    let bucket='pre', cur=null;
+    const pushDay=()=>{ if(cur){ out.days.push(cur); cur=null; } };
+    for(const raw of md.split('\n')){
+      const line=raw.replace(/\s+$/,'');
+      const dm=line.match(DAY_HDR);
+      if(dm){
+        pushDay();
+        const inner=line.replace(/^\*\*/,'').replace(/\*\*.*$/,'').trim();     // "Day N — Title"
+        const mm=inner.match(/^(Day\s*\d+)\s*[—:\-]?\s*(.*)$/i);
+        cur={ label:(mm?mm[1]:inner).replace(/\s+/g,' ').trim(), title:(mm&&mm[2]||'').trim(), lines:[] };
+        bucket='day'; continue;
+      }
+      const bl=line.match(BOLD_LINE);
+      if(bl && bucket!=='pre'){
+        // a bold section header AFTER days begin => trailing section (budget, practical…)
+        if(bucket==='day'){ pushDay(); bucket='post'; }
+        out.post.push(line); continue;
+      }
+      if(bucket==='pre')  out.pre.push(line);
+      else if(bucket==='day' && cur) cur.lines.push(line);
+      else out.post.push(line);
+    }
+    pushDay();
+    // Drop trailing header-only / blank lines from each bucket. e.g. "**Day-by-Day Itinerary**"
+    // is a divider that introduces the day tabs — left dangling at the end of the overview it
+    // makes the plan look cut off.
+    const trimTrailing = arr=>{ while(arr.length){ const l=arr[arr.length-1]; if(!l.trim()||BOLD_LINE.test(l)){ arr.pop(); } else break; } };
+    trimTrailing(out.pre);
+    const cm=(out.pre.join(' ').match(/\b(?:in|to|around|visit)\s+([A-Z][a-zA-Z]+)/g)||[]);
+    out.cities=[...new Set(cm.map(m=>m.split(/\s+/).pop()))].slice(0,4);
+    return out;
+  }
+
+  /* ---- markdown renderer: array (or string) of lines -> HTML ---- */
+  function mdInline(s){
+    return escapeHTML(s)
+      .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
+      .replace(/(?<!\w)_(.+?)_(?!\w)/g,'<em>$1</em>')
+      .replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>')
+      .replace(/\n/g,'<br>');
+  }
+  function renderMD(input){
+    const lines=Array.isArray(input)?input:String(input||'').split('\n');
+    let html='', inList=false;
+    const closeList=()=>{ if(inList){ html+='</ul>'; inList=false; } };
+    for(const raw of lines){
+      const line=raw.replace(/\s+$/,'');
+      if(!line.trim()){ closeList(); continue; }
+      const bl=line.match(BOLD_LINE);
+      const bullet=line.match(/^\s*[-*•]\s+(.*)/);
+      if(bl){ closeList(); html+=`<h4 class="md-h">${mdInline(bl[1])}</h4>`; continue; }
+      if(bullet){ if(!inList){ html+='<ul>'; inList=true; } html+=`<li>${mdInline(bullet[1])}</li>`; continue; }
+      closeList(); html+=`<p>${mdInline(line)}</p>`;
+    }
+    closeList();
+    return html;
+  }
+  function escapeHTML(s){ return (s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+  /* ============================================================
+     ADA HEADLESS CONFIG — defined BEFORE embed2.js (auto-start).
+     Subscribe on BOTH onAdaEmbedLoaded and adaReadyCallback (guarded),
+     because events can fire before the first subscription lands.
+     ============================================================ */
+  let adaSubscribed=false;
+  function subscribeToAda(){
+    if(adaSubscribed || !(window.adaEmbed && window.adaEmbed.subscribeEvent)) return;
+    adaSubscribed=true;
+    try{
+      window.adaEmbed.subscribeEvent('ada:message:received',(data)=>{
+        const m=(data&&data.message)||data||{}; if(m.role==='user') return;
+        handleBotMessage(m.body||'', m);
+      });
+      window.adaEmbed.subscribeEvent('ada:message:sent',(data)=>{ const m=(data&&data.message)||{}; console.log('[ada] sent registered id=',m.id); });
+    }catch(e){ adaSubscribed=false; console.warn('subscribe failed',e); }
+  }
+
+  // Start a brand-new conversation for THIS page load. Ada persists the chatter
+  // (persistence:"normal"), so without this a reload would resume the previous
+  // conversation. reset() mints a fresh chatter/conversation. Runs once per load.
+  let didReset=false;
+  async function freshConversation(){
+    if(didReset) return; didReset=true;
+    if(!CONFIG.ada.newConversationOnLoad){ state.convReady=true; if(state.mode==='live') setStatus('Live · connected','on'); return; }
+    if(!(window.adaEmbed && window.adaEmbed.reset)){ state.convReady=true; return; }
+    setStatus('Starting a new conversation…','busy');
+    try{
+      await window.adaEmbed.reset();          // new chatter => new conversation on Ada
+      console.log('[ada] reset → fresh conversation for this page load');
+    }catch(e){ console.warn('[ada] reset failed, using existing conversation:', (e&&e.message)||e); }
+    // give the refreshed chat frame a beat to become responsive before any send
+    await delay(600);
+    state.convReady=true;
+    if(state.mode==='live') setStatus('Live · connected','on');
+  }
+
+  window.adaSettings = {
+    handle: ADA_HANDLE,
+    headless: true,
+    enableProgrammaticControl: true,   // required for sendMessage + events
+    ...(CONFIG.ada.cluster ? { cluster: CONFIG.ada.cluster } : {}),
+    // The booking playbook fires the `flight_booking` handoff event (event name matches
+    // the "Booking redirection - generic" handoff on journify-itinerary). Its payload
+    // carries the booking url + form fields, which we POST-submit to the booking page.
+    eventCallbacks: {
+      flight_booking: (event)=>handleFlightBooking(event),
+    },
+    adaReadyCallback: ()=>{
+      state.adaReady=true; subscribeToAda();
+      console.log('[ada] ready — conversation channel open');
+      freshConversation();               // <- new conversation each page load
+    },
+    onAdaEmbedLoaded: ()=>{ subscribeToAda(); },
+  };
+
+  /* ============ demo fallback (offline preview only) ============ */
+  async function demoGenerate(t){
+    setStatus('Offline preview','');
+    state.itinSession=true; state.awaiting=null;
+    const chunks=buildDemoChunks(t);              // mimics the real ~5-bubble stream
+    for(const c of chunks){ await delay(700); state.raw+=(state.raw?'\n\n':'')+c; renderItinerary(t,false); }
+    await delay(250); state.itinSession=false; renderItinerary(t,true); toast('Sample itinerary ready');
+  }
+  // Same **bold**-header format the real playbook emits, split across bubbles.
+  function buildDemoChunks(t){
+    const N=t.days, style=t.styles.join(' & ')||'a balanced mix';
+    const seed=SAMPLE[(t.city||'').toLowerCase()]||SAMPLE._generic(t.city);
+    const b1=`**Your ${t.city} Itinerary**\n\nHere's a plan for your ${N}-day ${t.city} trip (${t.dates}), leaning into ${style} at a ${t.budget} budget for ${t.companions.toLowerCase()} travellers.\n\n**Overview & Routing**\n- **Base:** ${seed.base}\n- **Areas:** ${seed.areas}\n- **Getting around:** ${seed.transit}\n${t.flight==='No'?'- **Flights:** Malaysia Airlines KUL ⇄ '+t.city+'.':'- **Flights:** using your existing tickets.'}`;
+    let b2=`**Day-by-Day Itinerary**\n`;
+    for(let i=1;i<=N;i++){ const d=seed.days[(i-1)%seed.days.length]; b2+=`\n**Day ${i} — ${t.city} — ${d.title}**\n`; d.stops.forEach(s=>b2+=`- ${s}\n`); }
+    const b3=`**Estimated Budget**\n- **Daily budget (${t.budget}):** ${seed.budget}\n- **Stay:** ${seed.stay}\n- **Don't miss:** ${seed.dontmiss}\n\n**Next steps**\n- Tap **Book flight** for Malaysia Airlines fares.\n- Tap **Book trip** to reserve via Journify.`;
+    return [b1,b2,b3];
+  }
+  function demoAnswer(q,t){ const ql=q.toLowerCase();
+    if(/nikko|day ?trip|side/.test(ql)) return `A Nikko day trip fits on Day 3 — Tobu line from Asakusa (~2h) to Toshogu Shrine + Kegon Falls.`;
+    if(/food|eat/.test(ql)) return `For ${t.budget} ${t.city} dining, mix street food lunches with one nicer dinner per day.`;
+    return `For your ${t.days}-day ${t.city} plan, keep mornings for big sights and afternoons flexible.`; }
+  const SAMPLE={
+    tokyo:{base:'Central Tokyo (Nihonbashi/Ginza).',areas:'Asakusa, Shibuya, Shinjuku, Akihabara, Harajuku',transit:'Suica + JR/Metro.',budget:'≈ ¥12,000–18,000 pp/day',stay:'Nihonbashi',dontmiss:'Senso-ji at opening, teamLab, Shibuya sunset',days:[
+      {title:'Arrival & Old Tokyo',stops:['**Senso-ji Temple** — go early (06:00–08:00)','**Nakamise Shopping Street** — snacks & souvenirs','**Asakusa Shrine** — quiet & traditional','**Sumida River Cruise** — 2–3 hrs']},
+      {title:'Shibuya & Harajuku',stops:['**Meiji Jingu** — forest shrine','**Takeshita Street** — youth fashion & crepes','**Shibuya Sky** — sunset views','**Shibuya Crossing** — after dark']},
+      {title:'Culture & Akihabara',stops:['**Imperial Palace East Gardens** — free stroll','**Akihabara** — electronics & arcades','**teamLab Planets** — book ahead','**Izakaya dinner** in Omoide Yokocho']},
+      {title:'Day trip / your pace',stops:['**Nikko or Kamakura day trip**','**Ginza** — flagship stores & food halls','**Tokyo Tower** — evening skyline']}]},
+    seoul:{base:'Myeongdong/Hongdae.',areas:'Gyeongbokgung, Bukchon, Myeongdong, Gangnam',transit:'T-money + metro.',budget:'≈ ₩90,000–140,000 pp/day',stay:'Myeongdong',dontmiss:'Palace hanbok photos, night market',days:[
+      {title:'Palaces & Hanok',stops:['**Gyeongbokgung Palace** — guard ceremony','**Bukchon Hanok Village**','**Insadong** — tea & crafts']},
+      {title:'Modern Seoul',stops:['**N Seoul Tower**','**Myeongdong** — street food','**Hongdae** — nightlife']},
+      {title:'Culture & shopping',stops:['**DDP night market**','**Gangnam**','**Han River** sunset']},
+      {title:'Your pace',stops:['**Nami Island day trip**','**Ikseondong** cafés']}]},
+    bangkok:{base:'Sukhumvit or riverside.',areas:'Grand Palace, Chinatown, Sukhumvit',transit:'BTS + river boats + Grab.',budget:'≈ ฿1,500–2,800 pp/day',stay:'Sukhumvit',dontmiss:'Grand Palace early, rooftop bar',days:[
+      {title:'Temples & River',stops:['**Grand Palace** — early, dress modestly','**Wat Pho**','**Wat Arun** — sunset']},
+      {title:'Markets & Street Food',stops:['**Chatuchak Market**','**Chinatown (Yaowarat)**','**Asiatique**']},
+      {title:'Modern Bangkok',stops:['**Jim Thompson House**','**ICONSIAM**','**Rooftop bar**']},
+      {title:'Your pace',stops:['**Ayutthaya day trip**','**Thai cooking class**']}]},
+    _generic:(city)=>({base:`Central ${city}.`,areas:`${city} old town & main districts`,transit:'Local metro / rideshare.',budget:'Comfortable mid-range',stay:`Central ${city}`,dontmiss:`${city}'s signature landmark`,days:[
+      {title:`Arrival & ${city} highlights`,stops:[`**${city} old town**`,'**Main landmark**','**Welcome dinner**']},
+      {title:'Culture & neighbourhoods',stops:['**Top museum**','**Local market**','**Sunset spot**']},
+      {title:'Food & leisure',stops:['**Café/market crawl**','**Signature experience**','**Evening stroll**']},
+      {title:'Your pace',stops:['**Nearby day trip**','**Free afternoon**']}]})
+  };
+
+  // apply brand from CONFIG (topbar + document title)
+  (function applyBrand(){
+    const b=$('.brand'); if(b) b.innerHTML=`<span class="dot">✈</span> ${escapeHTML(CONFIG.brand.name)} <span class="sub">${escapeHTML(CONFIG.brand.tagline)}</span>`;
+    document.title = `${CONFIG.brand.name} · ${CONFIG.brand.tagline}`;
+  })();
+
+  setStatus('Connecting to Ada…','busy');
+</script>
+
+<!-- ===================== ADA DEBUG PANEL (self-contained, additive) =====================
+     Logs every Ada SDK event + console output, live status, and getMessages/getConversation
+     probes. Runs BEFORE embed2.js so it can wrap the adaSettings callbacks. Delete to remove. -->
+<script>
+(function(){
+  const MONO="ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace";
+  let open=true, evt=0, recv=0;
+  const seen=new Map();
+  const wrap=document.createElement('div');
+  wrap.style.cssText="position:fixed;left:0;right:0;bottom:0;z-index:99999;font-family:"+MONO+";font-size:11px;color:#e6edf3;background:rgba(13,17,23,.96);border-top:1px solid #30363d;backdrop-filter:blur(8px);max-height:45vh;overflow:hidden;transition:max-height .2s";
+  wrap.innerHTML='<div id="dbgbar" style="display:flex;gap:10px;align-items:center;background:#161b22;border-bottom:1px solid #30363d;padding:6px 10px;cursor:pointer;user-select:none">'+
+    '<b>ADA DEBUG</b><span id="dR" style="color:#d29922">loading</span><span id="dE" style="color:#7d8590">evts:0</span><span id="dV" style="color:#7d8590">recv:0</span><span id="dL" style="color:#7d8590">last:—</span>'+
+    '<span style="margin-left:auto;display:flex;gap:6px">'+
+      '<button data-a="msgs" style="'+b()+'">getMessages</button><button data-a="conv" style="'+b()+'">getConversation</button><button data-a="clear" style="'+b()+'">clear</button><span id="dT">▼</span></span></div>'+
+    '<div id="dLog" style="overflow-y:auto;max-height:calc(45vh - 34px);padding:6px 10px 12px"></div>';
+  function b(){return "background:#21262d;color:#e6edf3;border:1px solid #30363d;border-radius:6px;padding:2px 8px;font-family:"+MONO+";font-size:11px;cursor:pointer";}
+  document.body.appendChild(wrap);
+  const logEl=wrap.querySelector('#dLog');
+  const ft=ts=>{const d=new Date(ts),p=(n,l=2)=>String(n).padStart(l,'0');return p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds())+'.'+p(d.getMilliseconds(),3);};
+  const ss=v=>{try{return typeof v==='string'?v:JSON.stringify(v,(_k,x)=>typeof x==='function'?'[fn]':x);}catch{return String(v);}};
+  const C={event:'#79c0ff',log:'#e6edf3',warn:'#d29922',error:'#f85149',probe:'#3fb950'};
+  function add(kind,label,detail){ const r=document.createElement('div');
+    r.style.cssText='margin-bottom:2px;white-space:pre-wrap;word-break:break-word';
+    r.innerHTML='<span style="color:#7d8590">'+ft(Date.now())+'</span> <span style="color:'+(C[kind]||'#e6edf3')+'">'+label+'</span>'+(detail?(' <span style="color:#7d8590">'+ss(detail).slice(0,600).replace(/</g,'&lt;')+'</span>'):'');
+    logEl.appendChild(r); while(logEl.children.length>250) logEl.removeChild(logEl.firstChild); logEl.scrollTop=logEl.scrollHeight; }
+  ['log','warn','error'].forEach(k=>{ const o=console[k].bind(console); console[k]=(...a)=>{try{add(k==='log'?'log':k,a.map(ss).join(' ').slice(0,320));}catch{} o(...a);}; });
+  function onEvent(key,data){ const fp=key+':'+ss(data),now=Date.now(); if(now-(seen.get(fp)||0)<250) return; seen.set(fp,now);
+    evt++; if(key==='ada:message:received') recv++; wrap.querySelector('#dE').textContent='evts:'+evt; wrap.querySelector('#dV').textContent='recv:'+recv; wrap.querySelector('#dL').textContent='last:'+key;
+    if(key==='ada:ready') setReady(true); add('event',key,data); }
+  function setReady(r){ const e=wrap.querySelector('#dR'); e.textContent=r?'ready':'loading'; e.style.color=r?'#3fb950':'#d29922'; }
+  const EVENTS=['ada','ada:ready','ada:chat_frame_timeout','ada:message:sent','ada:message:received','ada:connection:change','ada:conversation:change','ada:end_conversation','ada:typing:start','ada:typing:stop'];
+  let sub=false;
+  function subscribeDebug(){ if(sub||!(window.adaEmbed&&window.adaEmbed.subscribeEvent)) return; sub=true;
+    EVENTS.forEach(k=>{try{Promise.resolve(window.adaEmbed.subscribeEvent(k,(d,ctx)=>onEvent((ctx&&ctx.eventKey)||k,d))).catch(e=>add('warn','subscribe '+k+' failed',e&&e.message));}catch(e){add('warn','subscribe '+k+' threw',e&&e.message);}});
+    add('probe','debug subscriptions attached',EVENTS.length+' keys'); }
+  const s=window.adaSettings||(window.adaSettings={});
+  const pL=s.onAdaEmbedLoaded; s.onAdaEmbedLoaded=function(){try{pL&&pL.apply(this,arguments);}catch(e){add('error','onAdaEmbedLoaded threw',e&&e.message);} add('probe','onAdaEmbedLoaded fired'); subscribeDebug();};
+  const pR=s.adaReadyCallback; s.adaReadyCallback=function(){try{pR&&pR.apply(this,arguments);}catch(e){add('error','adaReadyCallback threw',e&&e.message);} add('probe','adaReadyCallback fired'); setReady(true); subscribeDebug();};
+  setTimeout(()=>{ if(!sub) add('error','No Ada callback after 8s — SDK never started. Check id="__ada", handle, cluster, and that this origin is in the bot\'s iframe_allow_list.'); },8000);
+  wrap.querySelector('#dbgbar').addEventListener('click',async e=>{ const a=e.target&&e.target.getAttribute&&e.target.getAttribute('data-a');
+    if(a==='clear'){logEl.innerHTML='';return;}
+    if(a==='msgs'){try{add('probe','getMessages()',await window.adaEmbed.getMessages());}catch(err){add('error','getMessages failed',err&&err.message);}return;}
+    if(a==='conv'){try{add('probe','getConversation()',await (window.adaEmbed.getConversation?window.adaEmbed.getConversation():'n/a'));}catch(err){add('error','getConversation failed',err&&err.message);}return;}
+    open=!open; wrap.style.maxHeight=open?'45vh':'34px'; wrap.querySelector('#dT').textContent=open?'▼':'▲'; });
+  add('probe','debug panel ready — waiting for Ada SDK…');
+})();
+</script>
+
+<!-- Load Ada AFTER window.adaSettings + the debug panel. The embed script is injected with
+     id="__ada" + data-handle taken from CONFIG.ada.handle (via window.adaSettings.handle),
+     so the bot handle lives in ONE place (CONFIG) — nothing to edit down here. -->
+<script>
+  (function loadAda(){
+    var h=(window.adaSettings&&window.adaSettings.handle)||'';
+    var s=document.createElement('script');
+    s.id='__ada'; s.async=true;
+    s.src='https://static.ada.support/embed2.js';
+    s.setAttribute('data-handle', h);           // auto-bootstrap the headless conversation
+    document.body.appendChild(s);
+  })();
+</script>
+</body>
+</html>
