@@ -316,7 +316,15 @@
       "Give an overview and a day-by-day plan.",
     ].join("\n"),
 
-    timing: { itineraryQuietMs: 25000 }, // mark plan "done" this long after Ada's last bubble
+    timing: {
+      // The v7 itinerary streams across separate bubbles up to ~25s apart, so a plain 25s
+      // quiet-timer can fire in the GAP and finalise on incomplete content. We finalise fast
+      // once the itinerary LOOKS complete (day-by-day + a trailing section), and otherwise
+      // fall back to a long quiet — never declaring "ready" with zero days until the hard cap.
+      itineraryQuietMs:     45000,  // fallback quiet when we can't tell it's complete
+      itineraryDoneQuietMs:  4000,  // short quiet once it looks complete (catch stragglers)
+      itineraryMaxWaitMs:  180000,  // absolute cap before finalising regardless
+    },
 
     booking: {
       flightLabel: "✈️ Book your flight NOW!",
@@ -345,6 +353,7 @@
     mode:'live', adaReady:false, convReady:false, awaiting:null, /* 'itinerary' | 'qa' | null */
     itinSession:false, trip:null, raw:'', activeTab:'Overview', qas:[], pendingQA:null, doneTimer:null,
     seenTabs:new Set(['Overview']),  /* day tabs the user has already opened — the rest "light up" as they generate */
+    genStart:0,                      /* timestamp generation began — bounds the incomplete-content wait */
   };
 
   const toastEl=$('#toast');
@@ -463,6 +472,7 @@
     setStatus('Ada · generating…','busy');
     state.awaiting='itinerary';
     state.itinSession=true;        // stays true so ALL itinerary bubbles are captured
+    state.genStart=Date.now();     // start of generation — bounds the incomplete-content wait
     const msg=tripMessage(t);
     console.log('[journify] sending itinerary request, len='+msg.length+(msg.length>500?' ⚠ >500 CHAR LIMIT':''));
     try{
@@ -492,6 +502,15 @@
   // LAST bubble before declaring the plan "done" (enables Print/Book). Late bubbles that
   // arrive after "done" are still appended, because state.itinSession stays true.
   const ITIN_QUIET_MS = CONFIG.timing.itineraryQuietMs;
+  const ITIN_DONE_QUIET_MS = CONFIG.timing.itineraryDoneQuietMs;
+  const ITIN_MAX_WAIT_MS = CONFIG.timing.itineraryMaxWaitMs;
+  // The itinerary is "complete" once the day-by-day exists AND a section that only appears at
+  // the very end has arrived — so a mid-stream gap can't be mistaken for the end.
+  function itineraryLooksComplete(raw){
+    const hasDays = /(?:^|\n)\*\*\s*Day\s*\d+/i.test(raw||'');
+    const hasEnd  = /\*\*\s*(Next Steps|Estimated Budget|Why This Itinerary Works|Practical Execution)\s*\*\*/i.test(raw||'');
+    return hasDays && hasEnd;
+  }
 
   function handleBotMessage(body, msg){
     if(!body) return;
@@ -518,18 +537,30 @@
       setStatus('Ada is writing your itinerary…','busy');
       renderItinerary(state.trip,false);                   // progressive render
       clearTimeout(state.doneTimer);
-      state.doneTimer=setTimeout(finishItinerary, ITIN_QUIET_MS);
+      // Finalise quickly once it clearly looks complete; otherwise wait the long quiet so a
+      // ~25s gap between bubbles is never mistaken for the end.
+      const quiet = itineraryLooksComplete(state.raw) ? ITIN_DONE_QUIET_MS : ITIN_QUIET_MS;
+      state.doneTimer=setTimeout(finishItinerary, quiet);
       return;
     }
     // otherwise (e.g. greeting before any request) — ignore
   }
   function finishItinerary(){
     if(!state.itinSession) return;
+    // Guard: don't declare "ready" on obviously-incomplete content (e.g. only the overview
+    // arrived and the day-by-day bubble is still on its way). Keep waiting, up to the hard cap.
+    const parsedDays = parseItinerary(state.raw).days.length;
+    const elapsed = Date.now() - (state.genStart||0);
+    if(parsedDays===0 && elapsed < ITIN_MAX_WAIT_MS){
+      setStatus('Ada is writing your itinerary…','busy');
+      state.doneTimer=setTimeout(finishItinerary, ITIN_QUIET_MS);
+      return;
+    }
     state.awaiting=null; $('#plan').disabled=false;
     setStatus('Live · connected','on');
     renderItinerary(state.trip,true);
     toast('Itinerary ready');
-    console.log('[journify] itinerary complete —', state.raw.length, 'chars');
+    console.log('[journify] itinerary complete —', state.raw.length, 'chars,', parsedDays, 'days');
   }
 
   /* ============================================================
