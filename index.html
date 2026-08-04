@@ -153,10 +153,13 @@
   .ask input{flex:1;padding:12px 13px;border:1px solid var(--line);border-radius:12px;font-size:14px;outline:none}
   .ask input:focus{border-color:var(--violet);box-shadow:0 0 0 3px var(--violet-100)}
   .ask button{border:0;background:var(--violet);color:#fff;border-radius:12px;padding:12px 16px;font-weight:800;cursor:pointer}
-  .qas{padding:4px 20px 8px}
-  .qa{margin:10px 0}
-  .qa .q{font-weight:700;font-size:14px}
-  .qa .a{font-size:14px;color:var(--ink-soft);line-height:1.6;margin-top:3px}
+  .qas{padding:6px 20px 8px;display:flex;flex-direction:column}
+  /* follow-up Q&A rendered as chat bubbles */
+  .bubble{max-width:85%;padding:11px 14px;border-radius:16px;font-size:14px;line-height:1.55;margin:6px 0;word-wrap:break-word}
+  .bubble.user{align-self:flex-end;background:var(--violet);color:#fff;border-bottom-right-radius:5px}
+  .bubble.bot{align-self:flex-start;background:var(--violet-100);color:var(--ink);border-bottom-left-radius:5px}
+  .bubble.bot em{color:var(--muted)}
+  .bubble.bot a{color:var(--violet);font-weight:700}
 
   .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:12px 18px;border-radius:12px;font-size:13.5px;font-weight:600;box-shadow:var(--shadow);z-index:100;opacity:0;pointer-events:none;transition:opacity .2s}
   .toast.show{opacity:1}
@@ -327,7 +330,7 @@
     },
 
     booking: {
-      flightLabel: "✈️ Book your flight NOW!",
+      flightLabel: "✈️ Book my flight NOW",
       // Clicking "Book your flight NOW!" sends this exact trigger phrase to the
       // journify-itinerary agent (tokens: {start}{end}{city}). The booking playbook
       // runs silently, then fires the `flight_booking` handoff event which this page
@@ -525,7 +528,9 @@
       state.qas[idx].a = state.qas[idx]._acc;
       renderItinerary(state.trip,true);
       clearTimeout(state.doneTimer);
-      state.doneTimer=setTimeout(()=>{ state.awaiting=null; state.pendingQA=null; renderItinerary(state.trip,true); }, 4000);
+      // Keep this turn in 'qa' long enough that a multi-bubble answer accumulates into the SAME
+      // bot bubble instead of falling through and getting appended to the itinerary.
+      state.doneTimer=setTimeout(()=>{ state.awaiting=null; state.pendingQA=null; renderItinerary(state.trip,true); }, 10000);
       return;
     }
 
@@ -644,8 +649,13 @@
       ${renderMD(day.lines)}</div>`;
   }
   function askHTML(){
-    return `<div class="qas">${state.qas.map(qa=>`<div class="qa"><div class="q">You: ${escapeHTML(qa.q)}</div>
-      <div class="a">${qa.a? mdInline(qa.a):'<em>Ada is thinking…</em>'}</div></div>`).join('')}</div>
+    // Each follow-up renders as a chat exchange: the question as a user bubble, Ada's reply
+    // as a bot bubble (with a typing indicator until the answer arrives).
+    const thread=state.qas.map(qa=>
+      `<div class="bubble user">${escapeHTML(qa.q)}</div>`+
+      `<div class="bubble bot">${qa.a? mdInline(qa.a):'<em>Ada is thinking…</em>'}</div>`
+    ).join('');
+    return `<div class="qas">${thread}</div>
       <div class="ask"><input id="askInput" placeholder="Ask Ada anything about the plan… (e.g. add a day trip to Nikko)"/>
       <button id="askBtn">Ask</button></div>`;
   }
@@ -669,8 +679,8 @@
   }
 
   /* ============ booking — zero-input, straight to the MAS booking page ============
-     "Book your flight NOW!" sends the exact trigger phrase to the journify-itinerary
-     agent. The booking playbook silently builds a round-trip KUL⇄{city} booking link
+     "Book my flight NOW" sends Ada exactly: "book flight from <start> to <end> from KUL to <city>"
+     (built from the trip form). The booking playbook silently builds a round-trip KUL⇄{city} link
      (1 adult, Economy) and fires the `flight_booking` handoff event, which is caught by
      eventCallbacks.flight_booking (in window.adaSettings) and POST-submitted below.
      No form, no questions — the customer is taken straight to the booking page. */
