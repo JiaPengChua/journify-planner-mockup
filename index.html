@@ -386,23 +386,11 @@
       // Room occupancy sent as `travelers` — all adults (age 12, room 1), matching the
       // booking engine's sample payload. Edit to taste.
       travellersByCompanions: { Solo:1, Couple:2, Family:4, Friends:4 },
-      // The booking engine wants a DESTINATION CODE, not a city name. IATA codes are used with
-      // ht_des_type/des_type = "airport_code". Add a city here to enable its hotel buttons.
-      cityCodes: {
-        'tokyo':'HND','osaka':'KIX','kyoto':'KIX','seoul':'ICN','busan':'PUS','bangkok':'BKK',
-        'phuket':'HKT','chiang mai':'CNX','sydney':'SYD','melbourne':'MEL','perth':'PER',
-        'brisbane':'BNE','adelaide':'ADL','auckland':'AKL','singapore':'SIN','jakarta':'CGK',
-        'bali':'DPS','denpasar':'DPS','surabaya':'SUB','medan':'KNO','hong kong':'HKG',
-        'taipei':'TPE','shanghai':'PVG','beijing':'PEK','guangzhou':'CAN','manila':'MNL',
-        'cebu':'CEB','ho chi minh':'SGN','saigon':'SGN','hanoi':'HAN','da nang':'DAD',
-        'phnom penh':'PNH','siem reap':'REP','vientiane':'VTE','yangon':'RGN','colombo':'CMB',
-        'male':'MLE','maldives':'MLE','delhi':'DEL','new delhi':'DEL','mumbai':'BOM',
-        'chennai':'MAA','bengaluru':'BLR','bangalore':'BLR','hyderabad':'HYD','kochi':'COK',
-        'amritsar':'ATQ','kathmandu':'KTM','dhaka':'DAC','doha':'DOH','dubai':'DXB',
-        'jeddah':'JED','medina':'MED','london':'LHR','paris':'CDG','amsterdam':'AMS',
-        'istanbul':'IST','kuala lumpur':'KUL','penang':'PEN','langkawi':'LGK',
-        'kota kinabalu':'BKI','kuching':'KCH','johor bahru':'JHB',
-      },
+      // Destination codes come from Ada, never from a list here: the playbook's
+      // "Get destination code" action resolves the city against the MAS places API and writes
+      // the ht_des_code (place id) + des_code (airport/city code) globals, which the agent emits
+      // on an ##internal## line that this page reads. The API has no CORS headers, so the browser
+      // cannot call it directly — Ada is the only component that can resolve a destination.
     },
 
     print: {
@@ -422,7 +410,8 @@
     mode:'live', adaReady:false, convReady:false, awaiting:null, /* 'itinerary' | 'qa' | null */
     itinSession:false, trip:null, raw:'', activeTab:'Overview', qas:[], pendingQA:null, doneTimer:null,
     lastInboundAt:0,                 /* last time ANY bot message arrived — used to detect the welcome settling */
-    htDesCode:'',                    /* Ada's `ht_des_code` global (place id from the Get destination code action) */
+    htDesCode:'', desCode:'',        /* Ada's ht_des_code (place id, hotels) + des_code (airport code, flights) */
+    codeUnavailable:{},              /* codes Ada resolved to NONE — no such code exists for this destination */
     queuedPlan:false, queueTimer:null,  /* a Plan click that landed during the Ada handshake, replayed once ready */
     seenTabs:new Set(['Overview']),  /* day tabs the user has already opened — the rest "light up" as they generate */
     genStart:0,                      /* timestamp generation began — bounds the incomplete-content wait */
@@ -533,7 +522,7 @@
 
   async function startPlanning(){
     const t=collectTrip();
-    state.trip=t; state.raw=''; state.qas=[]; state.activeTab='Overview'; state.htDesCode='';
+    state.trip=t; state.raw=''; state.qas=[]; state.activeTab='Overview'; state.htDesCode=''; state.desCode=''; state.codeUnavailable={};
     state.seenTabs=new Set(['Overview']);   // fresh plan → every new day tab lights up
     clearTimeout(state.doneTimer);
 
@@ -604,16 +593,31 @@
     return hasDays && hasEnd;
   }
 
-  // Ada's `ht_des_code` global is set by the "Get destination code" action (playbook step 1.14).
-  // The Embed SDK can't read globals directly, so pick the value out of whatever Ada sends:
-  // a handoff event's globals, or a `ht_des_code: <value>` marker in a message.
-  const HT_DES_CODE_RE = /ht_des_code\s*[:=]\s*"?([A-Za-z0-9_-]+)"?/i;
+  // Destination codes come from the "Get destination code" action at the TOP of the itinerary
+  // playbook: ht_des_code = places[0].id (place id, for hotels), des_code = places[0].code
+  // (airport/city code, for the bundle's flight legs). No SDK method exposes Ada globals
+  // (getConversation returns only id/handoff, getMetaFields is outbound-only), so the playbook
+  // emits them on an `##internal##` line and this page reads them off any inbound message — or
+  // off a handoff event's globals, which carry every global.
+  // `des_code` needs a leading boundary so it can't also match inside "ht_des_code".
+  const CODE_RES = {
+    htDesCode: /(?:^|[\s|,])ht_des_code\s*[:=]\s*"?([A-Za-z0-9_-]+)"?/i,
+    desCode:   /(?:^|[\s|,])des_code\s*[:=]\s*"?([A-Za-z0-9_-]+)"?/i,
+  };
   function captureHtDesCode(text){
-    const m = HT_DES_CODE_RE.exec(text||'');
-    if(!m || m[1].toUpperCase()==='NONE') return;
-    if(state.htDesCode===m[1]) return;
-    state.htDesCode=m[1];
-    console.log('[MAS] ht_des_code from Ada →', state.htDesCode);
+    for(const key in CODE_RES){
+      const m = CODE_RES[key].exec(text||'');
+      if(!m) continue;
+      const v = m[1];
+      if(!v || v.toUpperCase()==='NONE' || v.toUpperCase()==='NULL'){
+        // Ada looked it up and there ISN'T one (e.g. a district with hotels but no airport) —
+        // remember that, so the button can say so instead of "try again in a moment".
+        state.codeUnavailable[key]=true; continue;
+      }
+      if(state[key]===v) continue;
+      state[key]=v; state.codeUnavailable[key]=false;
+      console.log('[MAS] '+key+' from Ada →', v);
+    }
   }
 
   function handleBotMessage(body, msg){
@@ -801,29 +805,21 @@
 
   /* ============ hotel / bundle booking — deterministic GET deep links ============
      "🏨 Hotel" and "🏨 + ✈️ Hotel + Flight" build a Malaysia Airlines Holidays booking URL
-     straight from the trip form — no Ada round-trip, no handoff event. Shape mirrors the
+     from the trip form plus Ada's resolved destination codes. Shape mirrors the
      booking engine's own links: JSON `travelers` + `expectation` objects, URL-encoded.
        hotel  → /shopping/processes/hotel?process=hotel&…&expectation={ht_*}
        bundle → /shopping/processes/bundle?process=bundle&…&expectation={fl_* + ht_*}
-     The destination must be a CODE (IATA, with *_type "airport_code"), so a city that isn't in
-     CONFIG.hotelBooking.cityCodes can't be linked — add it there to enable the buttons for it. */
+     Destination codes come from Ada's globals (ht_des_code / des_code, see captureHtDesCode) —
+     there is no city list in this file, so any destination the MAS places API knows will link. */
   function stayEnc(v){ return encodeURIComponent(v).replace(/%2C/g, ','); }   // keep commas literal, like the engine's own URLs
   function stayTravellers(t){
     const n=CONFIG.hotelBooking.travellersByCompanions[t.companions] || 1;
     return Array.from({length:n},()=>({type:'adult',age:12,room:1}));
   }
-  // City name -> IATA. Matches on the longest configured name contained in the destination,
-  // so "Bangkok, Thailand" and "Ho Chi Minh City" both resolve.
-  function stayCityCode(t){
-    const hay=((t.city||'')+' '+(t.dest||'')).toLowerCase();
-    let best='';
-    for(const name in CONFIG.hotelBooking.cityCodes){ if(hay.includes(name) && name.length>best.length) best=name; }
-    return best ? CONFIG.hotelBooking.cityCodes[best] : '';
-  }
   function stayUrl(t, mode){
-    const H=CONFIG.hotelBooking, code=stayCityCode(t);
-    // Hotel-only can run on Ada's ht_des_code alone; bundle also needs an IATA for the flight legs.
-    if(!code && !(mode==='hotel' && state.htDesCode)) return '';
+    const H=CONFIG.hotelBooking;
+    const code = mode==='bundle' ? state.desCode : state.htDesCode;
+    if(!code) return '';
     const q=[
       ['process',       mode],
       ['currency_code', H.currency],
@@ -838,19 +834,19 @@
         start_place_type:  'airport_code',
         des_code:          code,
         des_type:          'airport_code',
-        ht_des_code:       code,
-        ht_des_type:       'airport_code',
+        ht_des_code:       state.htDesCode || code,
+        ht_des_type:       state.htDesCode ? 'place_id' : 'airport_code',
         ht_checkin_date:   t.start,
         ht_checkout_date:  t.end,
         is_separate:       false,
         stars:             null,
       } : {
-        // Prefer Ada's `ht_des_code` global — it comes from the Get destination code action
-        // (`places[0].id`), so it is a place id, not an IATA code. Fall back to the city map.
-        ht_des_code:      state.htDesCode || code,
+        // Ada's `ht_des_code` global — `places[0].id` from the Get destination code action, so a
+        // place id, not an IATA code. Covers hotel destinations that have no airport at all.
+        ht_des_code:      code,
         ht_checkin_date:  t.start,
         ht_checkout_date: t.end,
-        ht_des_type:      state.htDesCode ? 'place_id' : 'airport_code',
+        ht_des_type:      'place_id',
         is_separate:      false,
       })],
       ['show_add_room', 'true'],
@@ -862,9 +858,18 @@
   }
   function openStayBooking(t, mode){
     if(!t || !t.start || !t.end){ toast('Pick your travel dates first.'); return; }
-    const code=stayCityCode(t);
-    if(!code && !(mode==='hotel' && state.htDesCode)){
-      toast(`No booking code for ${t.city||'that destination'} yet — add it to CONFIG.hotelBooking.cityCodes.`); return;
+    const code = mode==='bundle' ? state.desCode : state.htDesCode;
+    if(!code){
+      const key  = mode==='bundle' ? 'desCode' : 'htDesCode';
+      const where= t.city||'that destination';
+      toast(state.codeUnavailable[key]
+        ? (mode==='bundle'
+            ? `${where} has no airport code — book the hotel on its own.`
+            : `Malaysia Airlines has no bookable destination for ${where}.`)
+        : `Still waiting on the ${mode==='bundle'?'flight':'destination'} code for ${where} — try again in a moment.`);
+      console.warn('[MAS] no '+(mode==='bundle'?'des_code':'ht_des_code')+
+        (state.codeUnavailable[key] ? ' — Ada resolved it to NONE' : ' yet — Ada has not emitted it for this trip'));
+      return;
     }
     // Bundle flights ALWAYS depart CONFIG.hotelBooking.origin (KUL), so a KUL destination would
     // build a KUL→KUL flight leg. Hotel-only is still valid for a Kuala Lumpur stay.
@@ -873,8 +878,7 @@
       return;
     }
     const url=stayUrl(t, mode);
-    const shown = (mode==='hotel' && state.htDesCode) ? state.htDesCode+' (place_id, from Ada)' : code+' (airport_code)';
-    console.log(`[MAS] ${mode} deep link (${shown}) →`, url);
+    console.log(`[MAS] ${mode} deep link (${code}${mode==='bundle'?' airport_code':' place_id'}, from Ada) →`, url);
     toast(mode==='bundle' ? 'Opening hotel + flight bundle…' : 'Opening hotel search…');
     window.open(url, '_blank', 'noopener');
   }
@@ -898,7 +902,8 @@
     console.log('booking redirect triggered from Ada', event);
     try{
       const globals = (event && event.user_data && event.user_data.global) || {};
-      if(globals.ht_des_code) captureHtDesCode('ht_des_code:'+globals.ht_des_code);
+      if(globals.ht_des_code) captureHtDesCode(' ht_des_code:'+globals.ht_des_code);
+      if(globals.des_code)    captureHtDesCode(' des_code:'+globals.des_code);
       const method = (globals.method || 'post').toUpperCase();
       const platform = globals.platform || 'dsp';
       const url = globals.url;
