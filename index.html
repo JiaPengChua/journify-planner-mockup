@@ -422,6 +422,7 @@
     mode:'live', adaReady:false, convReady:false, awaiting:null, /* 'itinerary' | 'qa' | null */
     itinSession:false, trip:null, raw:'', activeTab:'Overview', qas:[], pendingQA:null, doneTimer:null,
     lastInboundAt:0,                 /* last time ANY bot message arrived — used to detect the welcome settling */
+    htDesCode:'',                    /* Ada's `ht_des_code` global (place id from the Get destination code action) */
     queuedPlan:false, queueTimer:null,  /* a Plan click that landed during the Ada handshake, replayed once ready */
     seenTabs:new Set(['Overview']),  /* day tabs the user has already opened — the rest "light up" as they generate */
     genStart:0,                      /* timestamp generation began — bounds the incomplete-content wait */
@@ -532,7 +533,7 @@
 
   async function startPlanning(){
     const t=collectTrip();
-    state.trip=t; state.raw=''; state.qas=[]; state.activeTab='Overview';
+    state.trip=t; state.raw=''; state.qas=[]; state.activeTab='Overview'; state.htDesCode='';
     state.seenTabs=new Set(['Overview']);   // fresh plan → every new day tab lights up
     clearTimeout(state.doneTimer);
 
@@ -603,10 +604,23 @@
     return hasDays && hasEnd;
   }
 
+  // Ada's `ht_des_code` global is set by the "Get destination code" action (playbook step 1.14).
+  // The Embed SDK can't read globals directly, so pick the value out of whatever Ada sends:
+  // a handoff event's globals, or a `ht_des_code: <value>` marker in a message.
+  const HT_DES_CODE_RE = /ht_des_code\s*[:=]\s*"?([A-Za-z0-9_-]+)"?/i;
+  function captureHtDesCode(text){
+    const m = HT_DES_CODE_RE.exec(text||'');
+    if(!m || m[1].toUpperCase()==='NONE') return;
+    if(state.htDesCode===m[1]) return;
+    state.htDesCode=m[1];
+    console.log('[MAS] ht_des_code from Ada →', state.htDesCode);
+  }
+
   function handleBotMessage(body, msg){
     if(!body) return;
     const text=body.trim();
     if(!text) return;
+    captureHtDesCode(text);                                // may ride along on an internal message
     if(/##internal##/i.test(text)) return;                 // internal, never show
 
     // ---- follow-up Q&A answer ----
@@ -808,7 +822,8 @@
   }
   function stayUrl(t, mode){
     const H=CONFIG.hotelBooking, code=stayCityCode(t);
-    if(!code) return '';
+    // Hotel-only can run on Ada's ht_des_code alone; bundle also needs an IATA for the flight legs.
+    if(!code && !(mode==='hotel' && state.htDesCode)) return '';
     const q=[
       ['process',       mode],
       ['currency_code', H.currency],
@@ -830,10 +845,12 @@
         is_separate:       false,
         stars:             null,
       } : {
-        ht_des_code:      code,
+        // Prefer Ada's `ht_des_code` global — it comes from the Get destination code action
+        // (`places[0].id`), so it is a place id, not an IATA code. Fall back to the city map.
+        ht_des_code:      state.htDesCode || code,
         ht_checkin_date:  t.start,
         ht_checkout_date: t.end,
-        ht_des_type:      'airport_code',
+        ht_des_type:      state.htDesCode ? 'place_id' : 'airport_code',
         is_separate:      false,
       })],
       ['show_add_room', 'true'],
@@ -846,7 +863,9 @@
   function openStayBooking(t, mode){
     if(!t || !t.start || !t.end){ toast('Pick your travel dates first.'); return; }
     const code=stayCityCode(t);
-    if(!code){ toast(`No booking code for ${t.city||'that destination'} yet — add it to CONFIG.hotelBooking.cityCodes.`); return; }
+    if(!code && !(mode==='hotel' && state.htDesCode)){
+      toast(`No booking code for ${t.city||'that destination'} yet — add it to CONFIG.hotelBooking.cityCodes.`); return;
+    }
     // Bundle flights ALWAYS depart CONFIG.hotelBooking.origin (KUL), so a KUL destination would
     // build a KUL→KUL flight leg. Hotel-only is still valid for a Kuala Lumpur stay.
     if(mode==='bundle' && code===CONFIG.hotelBooking.origin){
@@ -854,7 +873,8 @@
       return;
     }
     const url=stayUrl(t, mode);
-    console.log(`[MAS] ${mode} deep link (${code}) →`, url);
+    const shown = (mode==='hotel' && state.htDesCode) ? state.htDesCode+' (place_id, from Ada)' : code+' (airport_code)';
+    console.log(`[MAS] ${mode} deep link (${shown}) →`, url);
     toast(mode==='bundle' ? 'Opening hotel + flight bundle…' : 'Opening hotel search…');
     window.open(url, '_blank', 'noopener');
   }
@@ -878,6 +898,7 @@
     console.log('booking redirect triggered from Ada', event);
     try{
       const globals = (event && event.user_data && event.user_data.global) || {};
+      if(globals.ht_des_code) captureHtDesCode('ht_des_code:'+globals.ht_des_code);
       const method = (globals.method || 'post').toUpperCase();
       const platform = globals.platform || 'dsp';
       const url = globals.url;
