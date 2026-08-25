@@ -794,11 +794,6 @@
      The destination must be a CODE (IATA, with *_type "airport_code"), so a city that isn't in
      CONFIG.hotelBooking.cityCodes can't be linked — add it there to enable the buttons for it. */
   function stayEnc(v){ return encodeURIComponent(v).replace(/%2C/g, ','); }   // keep commas literal, like the engine's own URLs
-  function stayPackageId(){
-    const a=new Uint8Array(16);
-    (window.crypto||window.msCrypto).getRandomValues(a);
-    return [...a].map(b=>b.toString(16).padStart(2,'0')).join('');
-  }
   function stayTravellers(t){
     const n=CONFIG.hotelBooking.travellersByCompanions[t.companions] || 1;
     return Array.from({length:n},()=>({type:'adult',age:12,room:1}));
@@ -818,7 +813,6 @@
       ['process',       mode],
       ['currency_code', H.currency],
       ['language_code', H.language],
-      ['package_id',    stayPackageId()],
       ['travelers',     JSON.stringify(stayTravellers(t))],
       ['expectation',   JSON.stringify(mode==='bundle' ? {
         fl_cabin_class:    H.cabinClass,
