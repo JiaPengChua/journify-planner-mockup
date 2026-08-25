@@ -853,6 +853,12 @@
     if(!t || !t.start || !t.end){ toast('Pick your travel dates first.'); return; }
     const code=stayCityCode(t);
     if(!code){ toast(`No booking code for ${t.city||'that destination'} yet — add it to CONFIG.hotelBooking.cityCodes.`); return; }
+    // Bundle flights ALWAYS depart CONFIG.hotelBooking.origin (KUL), so a KUL destination would
+    // build a KUL→KUL flight leg. Hotel-only is still valid for a Kuala Lumpur stay.
+    if(mode==='bundle' && code===CONFIG.hotelBooking.origin){
+      toast(`Flights always depart ${CONFIG.hotelBooking.origin} — use the Hotel button for a ${t.city} stay.`);
+      return;
+    }
     const url=stayUrl(t, mode);
     console.log(`[MAS] ${mode} deep link (${code}) →`, url);
     toast(mode==='bundle' ? 'Opening hotel + flight bundle…' : 'Opening hotel search…');
