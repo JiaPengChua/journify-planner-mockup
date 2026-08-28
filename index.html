@@ -833,7 +833,9 @@
   const TYPING = txt=>`<div class="typing"><span class="dots"><i></i><i></i><i></i></span> ${txt}</div>`;
   function renderGenerating(t){
     $('#empty')?.remove();
-    $('#result').innerHTML = heroHTML(t) + TYPING(`Ada is planning your ${t.days}-day ${t.city} trip…`);
+    // No photo while we wait: the destination may turn out to be one Ada won't plan,
+    // and a hero for it would flash up before the refusal lands.
+    $('#result').innerHTML = heroHTML(t, false) + TYPING(`Ada is planning your ${t.days}-day ${t.city} trip…`);
   }
   function heroHTML(t, photo=true){
     // photo=false is used by the declined view: an unavailable destination must not be
@@ -867,7 +869,9 @@
     if(!tabs.includes(state.activeTab)) state.activeTab='Overview';
     state.seenTabs.add(state.activeTab);   // whatever the user is currently viewing counts as seen
     $('#result').innerHTML =
-      heroHTML(t) + toolbarHTML(done) + tabsHTML(tabs, ready) +
+      // The photo appears only once actual day content has arrived. A refusal never
+      // parses into days, so a blocked destination is never illustrated.
+      heroHTML(t, s.days.length > 0) + toolbarHTML(done) + tabsHTML(tabs, ready) +
       `<div class="stream" id="stream">${ state.activeTab==='Overview'
         ? overviewHTML(t,s) : dayHTML(t, s.days.find(d=>d.label===state.activeTab), done) }</div>` +
       (done ? askHTML() : TYPING('Ada is still writing… more is on the way'));
