@@ -117,6 +117,7 @@
   @keyframes tabwait{50%{opacity:1}}
 
   .stream{padding:8px 20px 20px}
+  .daycard.declined{border-left:3px solid var(--muted);color:var(--ink)}
   .daycard{border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin:12px 0;box-shadow:var(--shadow-sm)}
   .daycard h3{margin:0 0 4px;font-size:16px;letter-spacing:-.01em;display:flex;align-items:center;gap:9px}
   .daycard h3 .badge{background:var(--violet-100);color:var(--violet);font-size:12px;font-weight:800;border-radius:8px;padding:3px 9px}
@@ -405,6 +406,7 @@
     lastInboundAt:0,                 /* last time ANY bot message arrived — used to detect the welcome settling */
     htDesCode:'', desCode:'',        /* Ada's ht_des_code (place id, hotels) + des_code (airport code, flights) */
     codeUnavailable:{},              /* codes Ada resolved to NONE — no such code exists for this destination */
+    declined:false,                  /* last turn was a refused destination — restart the conversation */
     queuedPlan:false, queueTimer:null,  /* a Plan click that landed during the Ada handshake, replayed once ready */
     seenTabs:new Set(['Overview']),  /* day tabs the user has already opened — the rest "light up" as they generate */
     genStart:0,                      /* timestamp generation began — bounds the incomplete-content wait */
@@ -475,12 +477,17 @@
      in its own words, then sends `##end##`. This page only renders what Ada
      said and stops waiting — see the ##end## branch in handleBotMessage().
      ============================================================ */
+  /* Blocked destination. Keep the trip banner so the page still reads as a result,
+     but every CTA stays disabled — there is no itinerary to print or book. Ada's own
+     wording is shown, followed by the same "Create another itinerary" action the
+     normal flow ends with, so the customer has a way forward. */
   function renderDeclined(){
-    $('#result').innerHTML = '<div class="empty"><div>'
-      + '<div class="big">\u{1F6AB}</div>'
-      + '<h3>Destination not available</h3>'
-      + '<p>' + escapeHTML(state.raw.trim()) + '</p>'
-      + '</div></div>';
+    const t = state.trip || collectTrip();
+    $('#result').innerHTML =
+      heroHTML(t) + toolbarHTML(false) +
+      `<div class="stream"><div class="daycard declined">${renderMD(state.raw.trim())}</div></div>` +
+      askHTML();
+    wireResult(t, false);   // disabled CTAs are inert; this wires #btnRegen
   }
 
   /* Ada has signalled the end of the turn (##end##). Stop the spinner and render
@@ -493,6 +500,11 @@
     if(parseItinerary(state.raw).days.length){
       renderItinerary(state.trip,true); toast('Itinerary ready');
     }else{
+      // A refused destination poisons the conversation: Ada stops triggering the itinerary
+      // playbook for ANY later destination in the same conversation (verified — the next
+      // turn shows no playbook_triggered at all and the generic no-knowledge fallback
+      // answers instead). Force a fresh conversation before the next plan.
+      state.declined = true;
       renderDeclined(); toast('That destination is not available.');
     }
     console.log('[journify] ##end## — turn finalised,', state.raw.length, 'chars');
@@ -665,6 +677,8 @@
     }
     renderGenerating(t);
     $('#plan').disabled=true;
+    // Previous turn was refused — that conversation can no longer produce an itinerary.
+    if(state.declined){ state.declined=false; await restartConversation(); }
     setStatus('Ada · generating…','busy');
     state.awaiting='itinerary';
     state.itinSession=true;        // stays true so ALL itinerary bubbles are captured
@@ -1217,6 +1231,20 @@
   // Resolve once the inbound stream has been quiet for WELCOME_QUIET_MS (i.e. the welcome finished),
   // or after WELCOME_MAX_WAIT_MS if the welcome never shows up at all.
   const WELCOME_QUIET_MS = 2500, WELCOME_MAX_WAIT_MS = 15000;
+  // Mint a brand-new chatter + conversation mid-session. Used after a refused
+  // destination, so the next plan is judged on its own with no poisoned context.
+  async function restartConversation(){
+    if(!(window.adaEmbed && window.adaEmbed.reset)) return;
+    state.convReady=false;
+    setStatus('Starting a new conversation…','busy');
+    try{
+      await window.adaEmbed.reset();
+      console.log('[ada] reset → fresh conversation after a refused destination');
+    }catch(e){ console.warn('[ada] reset failed:', (e&&e.message)||e); }
+    await welcomeSettled();
+    state.convReady=true;
+  }
+
   async function welcomeSettled(){
     const t0=Date.now();
     state.lastInboundAt=0;
