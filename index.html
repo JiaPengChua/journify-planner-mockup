@@ -90,6 +90,7 @@
 
   .hero{position:relative;height:220px;background:#ddd;display:flex;align-items:flex-end}
   .hero img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  .hero.nophoto{background:linear-gradient(135deg,#4b5563,#1f2937)}
   .hero .scrim{position:absolute;inset:0;background:linear-gradient(180deg,rgba(16,24,32,0) 30%,rgba(16,24,32,.78) 100%)}
   .hero .cap{position:relative;padding:20px;color:#fff}
   .hero .cap .k{font-size:12px;font-weight:700;opacity:.9;letter-spacing:.06em;text-transform:uppercase}
@@ -484,7 +485,7 @@
   function renderDeclined(){
     const t = state.trip || collectTrip();
     $('#result').innerHTML =
-      heroHTML(t) + toolbarHTML(false) +
+      heroHTML(t, false) + toolbarHTML(false) +
       `<div class="stream"><div class="daycard declined">${renderMD(state.raw.trim())}</div></div>` +
       askHTML();
     wireResult(t, false);   // disabled CTAs are inert; this wires #btnRegen
@@ -834,7 +835,17 @@
     $('#empty')?.remove();
     $('#result').innerHTML = heroHTML(t) + TYPING(`Ada is planning your ${t.days}-day ${t.city} trip…`);
   }
-  function heroHTML(t){
+  function heroHTML(t, photo=true){
+    // photo=false is used by the declined view: an unavailable destination must not be
+    // illustrated. No <img> is emitted at all, so upgradeHeroes() — which selects
+    // '.hero img[data-city]' — has nothing to fill in later either.
+    if(!photo){
+      return `<div class="hero nophoto">
+        <div class="scrim"></div>
+        <div class="cap"><div class="k">${t.days} days · ${t.companions} · ${t.budget}</div>
+          <h2>${t.days}-Day Journey · ${t.city}</h2>
+          <div class="meta">${t.dates||''} ${t.country?('· '+t.country):''}</div></div></div>`;
+    }
     // If t.city has no verified photo, the src above is the SVG placeholder; this
     // kicks off the Wikipedia lookup once the markup has landed in the DOM.
     setTimeout(upgradeHeroes,0);
