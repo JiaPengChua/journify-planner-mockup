@@ -1245,7 +1245,7 @@
 
   // Resolve once the inbound stream has been quiet for WELCOME_QUIET_MS (i.e. the welcome finished),
   // or after WELCOME_MAX_WAIT_MS if the welcome never shows up at all.
-  const WELCOME_QUIET_MS = 2500, WELCOME_MAX_WAIT_MS = 15000;
+  const WELCOME_QUIET_MS = 2500, WELCOME_MAX_WAIT_MS = 25000;
   // Mint a brand-new chatter + conversation mid-session. Used after a refused
   // destination, so the next plan is judged on its own with no poisoned context.
   async function restartConversation(){
@@ -1260,11 +1260,24 @@
     state.convReady=true;
   }
 
+  // After reset() the Messaging runtime creates the chatter + conversation LAZILY, on the first
+  // sendMessage() — and that first message is swallowed by the welcome window (never reaches Ada).
+  // So open the conversation with a throwaway send, then watch getMessages() (events alone proved
+  // unreliable here) until the welcome has arrived and gone quiet. Only then is a send safe.
+  async function botMsgCount(){
+    try{ const m=await Promise.race([window.adaEmbed.getMessages(), delay(3000).then(()=>null)]);
+      return m ? m.filter(x=>x && x.role!=='user').length : 0; }catch(e){ return 0; }
+  }
   async function welcomeSettled(){
     const t0=Date.now();
     state.lastInboundAt=0;
     setStatus('Waiting for the agent to be ready…','busy');
+    // Open the conversation (this message is dropped by Ada — it only creates the chat).
+    Promise.race([window.adaEmbed.sendMessage('hi'), delay(8000)]).catch(e=>console.warn('[ada] opener send:', (e&&e.message)||e));
+    let seen=0;
     while(Date.now()-t0 < WELCOME_MAX_WAIT_MS){
+      const n=await botMsgCount();
+      if(n>seen){ seen=n; state.lastInboundAt=Date.now(); }
       const last=state.lastInboundAt;
       if(last && Date.now()-last >= WELCOME_QUIET_MS){
         console.log('[ada] welcome settled after '+((Date.now()-t0)/1000).toFixed(1)+'s — safe to send');
